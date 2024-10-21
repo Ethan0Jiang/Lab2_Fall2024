@@ -236,7 +236,7 @@ response_t cache_t::load(address_t addr, bus_tag_t tag, int *data, bool retried_
     r.hit_p = true;
     r.retry_p = false;
 
-    *data = read_data(addr, car);
+    *data = read_data(addr, car); // *data is a single word, read from the cache
 
     NOTE_ARGS(("%d: hit: addr %d, tag %d", node, addr, tag));
 
@@ -252,7 +252,7 @@ response_t cache_t::load(address_t addr, bus_tag_t tag, int *data, bool retried_
       // issue a read to next level of memory hierarchy.  In this case,
       // it's the IU
       
-      if (iu->from_proc(proc_cmd)) {
+      if (iu->from_proc(proc_cmd)) {  // send the request to the IU
 	      ERROR("should not retry from_proc:load");
       }
 
@@ -278,14 +278,13 @@ response_t cache_t::store(address_t addr, bus_tag_t tag, int data, bool retried_
 
   cache_access(addr, EXCLUSIVE, &car);  // check if the cache line is in the cache 
                                         // and if it has the right permission (EXCLUSIVE and MODIFIED)
-                                        // SHARE is treated as a miss
 
   switch (car.permit_tag) {
   case INVALID: {
     if (!retried_p) {
       // if the cache line is not in the cache, issue a read request to the next level of memory hierarchy
-      proc_cmd_t proc_cmd = (proc_cmd_t){READ, addr, tag, MODIFIED}; 
-      if (iu->from_proc(proc_cmd)) {
+      proc_cmd_t proc_cmd = (proc_cmd_t){READ, addr, tag, MODIFIED}; // MODIFIED is the next state
+      if (iu->from_proc(proc_cmd)) { // never go true?
 	ERROR("should not retry from_proc:store INVALID"); // ??? why is this an error ???
       }
       // if the cache line is not in the cache, increment the misses counter

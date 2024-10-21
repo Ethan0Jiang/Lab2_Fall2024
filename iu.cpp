@@ -21,7 +21,7 @@ iu_t::iu_t(int __node) {
       // initialize memory to 0
       mem[i][j] = 0;
 
-  proc_cmd_p = false;  // what is this?
+  proc_cmd_p = false;  // default is false
   proc_cmd_writeback_p = false; // this is a writeback request from the processor
   
 }
@@ -54,10 +54,10 @@ void iu_t::advance_one_cycle() {
       proc_cmd_writeback_p = false;
     }
   } else if (proc_cmd_p) { // in privous cycle, set proc_cmd_p to true, with it proc_cmd, in this cycles, we process the request, and set proc_cmd_p to false if the request is completed
-    if (!process_proc_request(proc_cmd)) {  // proc_cmd false means the request is completed, true means the request is not completed (e.g., the request is sent to the network)
+    if (!process_proc_request(proc_cmd)) {  // process_proc_request return false means the request is completed, true means the request is not completed (e.g., the request is sent to the network)
       proc_cmd_p = false;
     }
-  }
+  }    // ???snoop here??? would here causing dead lock?
 }
 
 // processor side
@@ -66,12 +66,12 @@ void iu_t::advance_one_cycle() {
 // ??? why we need to distingush non-writeback request and writeback request
 bool iu_t::from_proc(proc_cmd_t pc) {
   if (!proc_cmd_p) {
-    proc_cmd_p = true;
+    proc_cmd_p = true; // mean there is a request from the processor to the IU
     proc_cmd = pc; // set the proc_cmd to the pc, where pc is  a struct (proc_cmd_t) that contains the address, data, and busop
 
     return(false);
   } else {
-    return(true);
+    return(true); // we do not want to return true, hence proc_cmd_p need to be false
   }
 }
 
@@ -101,7 +101,8 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     
     switch(pc.busop) {
     case READ:
-      copy_cache_line(pc.data, mem[lcl]); // dest, src
+      copy_cache_line(pc.data, mem[lcl]); // dest, src: copy data from local to a load buffer, which will write to cache using reply
+      // here should ask home site to invalidate other cache lines if pc state is MODIFIED
 
       cache->reply(pc);
       return(false);

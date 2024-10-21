@@ -75,7 +75,7 @@ void proc_t::advance_one_cycle() {
   case 0:
     if (!response.retry_p) {
       addr = random() % test_args.addr_range;
-      ld_p = ((random() % 2) == 0);
+      ld_p = ((random() % 2) == 0);  // 50% chance of load
     }
     if (ld_p) response = cache->load(addr, 0, &data, response.retry_p);
     else      response = cache->store(addr, 0, cur_cycle, response.retry_p);

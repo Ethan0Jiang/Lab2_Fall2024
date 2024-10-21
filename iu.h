@@ -20,7 +20,7 @@ class iu_t {
   int global_accesses;
 
   data_t mem[MEM_SIZE];
-  data_t dir_mem[DIR_MEM_SIZE];
+  data_t dir_mem[DIR_MEM_SIZE]; // data_t is data_t[CACHE_LINE_SIZE], which mean this one is a 2D array
 
   cache_t *cache;
   network_t *net;
