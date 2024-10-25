@@ -32,8 +32,14 @@ response_t cache_t::snoop(proc_cmd_t proc_cmd) {
   //proc_cmd_t contains a field (busop) that specifies the operation being snooped
   // depending on the operation, different actions needed
 
-  // Procedure would be, 1: node send read, MODIFIED to local homesite or to net, other nodes keep snooping the cmd, and if they have the addr match, they will invalidate the data locally and tell home site.
-  // once home site receive all invalidation, it will send the data to the node that request to modify the data
+  // The snoop need to handle the following cases:
+  // 1 Snoop hit on a Read
+  // For example, if you have an address in E or M, and other node is reading this address, the state need to be changed to S
+  // 2 Snoop hit on write or RWITM
+  // For example, if you have an address in M or E or S, and other node is writing this address, the state need to be changed to I
+  // Response is to home site to indicate the operation is completed, and home site can reply (?) to the processor who access the data
+
+  // snoop would send a process_proc_request if needs to invalid current node data?
   response_t r;
   return(r);
 }
@@ -51,7 +57,7 @@ void cache_t::reply(proc_cmd_t proc_cmd) {
     // ***** FYTD: calculate the correct writeback address ***** 
     // the avaliable data including, address_tag(needed), node_id(include in address_tag), also the shifting index
     // wb.addr = 0; // need a value for now, need to calculate the correct writeback address, the pysically address of the cache line
-    wb.addr = (car.address_tag << address_tag_shift) | (car.set << set_shift); // the remaining bits for offset are 0
+    wb.addr = (tags[car.set][car.way].address_tag << address_tag_shift) | (car.set << set_shift); // the remaining bits for offset are 0
     copy_cache_line(wb.data, tags[car.set][car.way].data); // dest, src.
     if (iu->from_proc_writeback(wb)) {
       ERROR("should not retry a from_proc_writeback since there should only be one outstanding request");

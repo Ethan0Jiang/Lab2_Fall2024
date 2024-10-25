@@ -50,7 +50,7 @@ void iu_t::advance_one_cycle() {
     process_net_request(net->from_net(node, PRI3));
 
   } else if (proc_cmd_writeback_p) { // proc_cmd_writeback_p is a boolean that checks if there is a writeback request from the processor to the IU?
-    if (!process_proc_request(proc_cmd_writeback)) { // proc_cmd_writeback is a struct (proc_cmd_t) that contains the address, data, and busop, which defined in types.h
+    if (process_proc_request(proc_cmd_writeback)) { // proc_cmd_writeback is a struct (proc_cmd_t) that contains the address, data, and busop, which defined in types.h
       proc_cmd_writeback_p = false;
     }
   } else if (proc_cmd_p) { // in privous cycle, set proc_cmd_p to true, with it proc_cmd, in this cycles, we process the request, and set proc_cmd_p to false if the request is completed
@@ -99,8 +99,13 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     ++local_accesses;
     proc_cmd_p = false; // clear proc_cmd
     
+    // for example, if doing a INVALIDATE to 
     switch(pc.busop) {
     case READ:
+      // if it is a read, should we check the current tag state of the cache line first from the home site?
+      // if the tag state is exclusive(means could be modified), we need other to writeback first
+      // if the tag state is shared, we can directly read the data from the local cache, but if we are doing RWITM, we need to invalidate other nodes (send net request)
+      // if the tag state is invalid, we can directly read the data from the local cache
       copy_cache_line(pc.data, mem[lcl]); // dest, src: copy data from local to a load buffer, which will write to cache using reply
       // here should ask home site to invalidate other cache lines if pc state is MODIFIED
 
@@ -125,6 +130,8 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     net_cmd.dest = dest;
     net_cmd.proc_cmd = pc;
 
+    // for the WB case, return TRUE if goes to network successfully, not need to retry
+    // for the other cases, return TRUE if goes to network successfully, need to retry until success?
     return(net->to_net(node, PRI1, net_cmd)); // return true if goes to network successfully
   }
   return(false); // need to return something
@@ -132,7 +139,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
 
 
 // receive a net request
-bool iu_t::process_net_request(net_cmd_t net_cmd) {
+bool iu_t::process_net_request(net_cmd_t net_cmd) {  // maybe this will call the snoop? 
   proc_cmd_t pc = net_cmd.proc_cmd;
 
   int lcl = gen_local_cache_line(pc.addr);
@@ -142,10 +149,10 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
   // ***** FYTD *****
   // sanity check
   if (gen_node(pc.addr) != node) 
-    ERROR("sent to wrong home site!");
+    ERROR("sent to wrong home site!"); 
 
   switch(pc.busop) {
-  case READ: // assume local
+  case READ: // assume local     
     net_cmd.dest = src;
     net_cmd.src = dest;
     copy_cache_line(pc.data, mem[lcl]);
@@ -155,10 +162,10 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
     return(net->to_net(node, PRI0, net_cmd));
       
   case WRITEBACK:
-    copy_cache_line(mem[lcl], pc.data);
+    copy_cache_line(mem[lcl], pc.data);  // other node trying to writeback data to the home site (Im the home site)
     return(false);
       
-  case INVALIDATE:
+  case INVALIDATE: 
   default:
     // ***** FYTD *****
     return(false);  // need to return something for now
@@ -166,8 +173,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
 }
 
 
-//a reply from a write or an invalidate to indicate that the write or invalidate has been completed
-bool iu_t::process_net_reply(net_cmd_t net_cmd) {
+bool iu_t::process_net_reply(net_cmd_t net_cmd) {    // this is a reply from the network that set proc_cmd_p back to false
   proc_cmd_t pc = net_cmd.proc_cmd;
 
   // ***** FYTD *****
