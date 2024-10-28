@@ -14,16 +14,6 @@
 #include "helpers.h"
 
 
-
-// typedef struct {
-//   busop_t busop;
-//   address_t addr;
-//   bus_tag_t tag;
-//   permit_tag_t permit_tag;
-//   data_t data;
-// } proc_cmd_t;
-
-
 // ***** FYTD ***** 
 // response_t contains two boolean values, hit_p and retry_p.
 response_t cache_t::snoop(proc_cmd_t proc_cmd) {

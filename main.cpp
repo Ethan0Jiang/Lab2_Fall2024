@@ -68,7 +68,7 @@ void init_system() {
 
   for (int p = 0; p < args.num_procs; ++p) {
     procs[p] = new proc_t(p);  // create a processor with id p
-    caches[p] = new cache_t(p, 2, 3, LG_CACHE_LINE_SIZE);
+    caches[p] = new cache_t(p, 2, 3, LG_CACHE_LINE_SIZE);  // create a cache with id p, 2 means 4 ways, 3 means 8 sets, LG_CACHE_LINE_SIZE is 3 means 8 words per cache line
     ius[p] = new iu_t(p);;
     
     procs[p]->bind(caches[p]);  // bind processor to cache, bind means connect
