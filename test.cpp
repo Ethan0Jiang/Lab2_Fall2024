@@ -125,27 +125,30 @@ void proc_t::advance_one_cycle() {
 
 
     case 2:
-      if (proc < 3) {
+      if (proc < 3) {  // 3 processors share the same address
         if (!response.retry_p) {
-          ld_p = true; // Force load operation
           addr = 324; // Fixed address
+          response = cache->load(addr, 0, &data, response.retry_p);
         }
-        response = cache->load(addr, 0, &data, response.retry_p);
         if (args.verbose) {
           printf("Processor %d: Loading from address %d, data: %d\n", proc, addr, data);
         }
-      } else if (proc == 3) {
+      } else if (proc == 3) { // Processor 3 stores to different addresses with same set, need eviction, also test snooping and writeback
         int set_shift = LG_CACHE_LINE_SIZE;
         int lg_num_sets = 3;
         int set_mask = (1 << lg_num_sets) - 1;
         int set = (addr >> set_shift) & set_mask;
         // Different addresses with same set, random address but with set bits replace back
-        if (!response.retry_p) {
-          ld_p = false; // Force store operation
+        if (!response.retry_p || op_count < 4) {
           addr = (random() % 8192) & ~(set_mask << set_shift); // Clear set bits
           addr |= (set << set_shift); // Apply the calculated set bits
-        }
-        response = cache->store(addr, 0, cur_cycle, response.retry_p);
+          op_count++;
+          response = cache->store(addr, 0, cur_cycle, response.retry_p);
+        } else if (!response.retry_p || op_count == 4) {
+          addr = 324; // Fixed address
+          op_count = 0;
+          response = cache->store(addr, 0, cur_cycle, response.retry_p);
+        } 
         if (args.verbose) {
           printf("Processor %d: Storing to address %d, data: %d\n", proc, addr, cur_cycle);
         }
