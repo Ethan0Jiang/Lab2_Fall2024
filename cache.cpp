@@ -94,7 +94,7 @@ int cache_t::gen_offset(address_t addr) { // the data offset within the cache li
 // generate set number from address, the function is used to determine which set the address belongs to
 int cache_t::gen_set(address_t addr) {
   int set = (addr >> set_shift) & set_mask;
-  NOTE_ARGS(("addr = %x, set_shift %d, set_mask %x, set %d\n", addr, set_shift, set_mask, set));
+  NOTE_ARGS(("addr_x = %x, addr_d = %d, set_shift %d, set_mask %x, set %d", addr, addr, set_shift, set_mask, set)); 
   return(set);
 }
 

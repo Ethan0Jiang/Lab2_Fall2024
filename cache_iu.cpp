@@ -29,7 +29,8 @@ response_t cache_t::snoop(proc_cmd_t proc_cmd) {
   response_t r;
   r.hit_p = true;
   r.retry_p = false;
-
+  // NEED: send a net reply to homesite in each case!!!
+  // Consider eviction of EXCLUSIVE state should nofity the home site, to update its state ???? Confirm with Derek
   // other is reading the data, home site IU will send a READ op, with the next permit_tag is SHARED
   if (proc_cmd.busop == READ && proc_cmd.permit_tag == SHARED) {
     // sanity check, proc_cmd.tag should has the same tag as existing cache line
@@ -37,12 +38,14 @@ response_t cache_t::snoop(proc_cmd_t proc_cmd) {
       ERROR("should not have gotten a read request for a different line");
     }
     if (tags[car.set][car.way].permit_tag == INVALID) {
-      ERROR("should not have gotten a read request for an INVALID line to SHARED");
+      // message, data could be on the fly, no need to do anything
+      printf("Data could be on the fly(E->I) or evicted(S->I), no need to do anything\n");
     } else if (tags[car.set][car.way].permit_tag == SHARED) {
       ERROR("should not have gotten a read request for a SHARED line to SHARED");
     } else if (tags[car.set][car.way].permit_tag == EXCLUSIVE) {
       // change the permit_tag to SHARED
       modify_permit_tag(car, SHARED);
+      // create a net reply
     } else if (tags[car.set][car.way].permit_tag == MODIFIED) {
       // change the permit_tag to SHARED, writeback to memory
       proc_cmd_t wb;
@@ -61,7 +64,7 @@ response_t cache_t::snoop(proc_cmd_t proc_cmd) {
   // and the next permit_tag is INVALID, if the data is in M, then writeback to memory
   } else if (proc_cmd.busop == INVALIDATE && proc_cmd.permit_tag == INVALID) {
     if (tags[car.set][car.way].permit_tag == INVALID) {
-      ERROR("should not have gotten an invalidate request for an INVALID line to INVALID");
+      // ERROR("should not have gotten an invalidate request for an INVALID line to INVALID");
     } else if (tags[car.set][car.way].permit_tag == SHARED) {
       modify_permit_tag(car, INVALID);
     } else if (tags[car.set][car.way].permit_tag == EXCLUSIVE) {

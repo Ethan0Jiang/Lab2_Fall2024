@@ -46,10 +46,12 @@ void init_test() {
     break;
 
   case 1: // 4 cores test
-  test_args.addr_range = 8192 * 4;
+    test_args.addr_range = 8192 * 4;
+    break;
 
   case 2: // 4 cores test
-  test_args.addr_range = 8192 * 4;
+    test_args.addr_range = 8192 * 4;
+    break;
 
   default:
     ERROR("don't recognize this test");
@@ -125,7 +127,7 @@ void proc_t::advance_one_cycle() {
 
 
     case 2:
-      if (proc < 3) {  // 3 processors share the same address
+      if (proc < 3) {  // 3 processors (0~2) share the same address
         if (!response.retry_p) {
           addr = 324; // Fixed address
           response = cache->load(addr, 0, &data, response.retry_p);

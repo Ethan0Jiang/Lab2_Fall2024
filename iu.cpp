@@ -21,6 +21,13 @@ iu_t::iu_t(int __node) {
       // initialize memory to 0
       mem[i][j] = 0;
 
+  // initialize the directory memory to INVALID
+  for (int i = 0; i < MEM_SIZE; ++i) {
+    dir_mem[i][0] = 0;
+    dir_mem[i][1] = INVALID;
+  }
+
+
   proc_cmd_p = false;  // default is false
   proc_cmd_writeback_p = false; // this is a writeback request from the processor
   
@@ -99,17 +106,24 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     ++local_accesses;
     proc_cmd_p = false; // clear proc_cmd
     
-    // for example, if doing a INVALIDATE to 
     switch(pc.busop) {
     case READ:
       // if it is a read, should we check the current tag state of the cache line first from the home site?
-      // if the tag state is exclusive(means could be modified), we need other to writeback first
+      // if the tag state is exclusive(means could be modified) in other node, we need other to writeback first
       // if the tag state is shared, we can directly read the data from the local cache, but if we are doing RWITM, we need to invalidate other nodes (send net request)
       // if the tag state is invalid, we can directly read the data from the local cache
-      copy_cache_line(pc.data, mem[lcl]); // dest, src: copy data from local to a load buffer, which will write to cache using reply
+      copy_cache_line(pc.data, mem[lcl]); // dest, src
       // here should ask home site to invalidate other cache lines if pc state is MODIFIED
+      if (dir_mem[lcl][1] == EXCLUSIVE) {
+        net_cmd_t net_cmd;
+        net_cmd.src = node;
+        net_cmd.dest = dest;
+        net_cmd.proc_cmd = (proc_cmd_t){INVALIDATE, pc.addr, 0, INVALID};
+        net->to_net(node, PRI3, net_cmd);
+      }
 
       cache->reply(pc);
+
       return(false);
       
     case WRITEBACK:
@@ -155,11 +169,16 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {  // maybe this will call the
   case READ: // assume local     
     net_cmd.dest = src;
     net_cmd.src = dest;
-    copy_cache_line(pc.data, mem[lcl]);
+    // first check the dir_mem to see the state of the cache line
+    // if the state is Exclusive, we need other to writeback first
+
+
+
+    copy_cache_line(pc.data, mem[lcl]); // copy data from local to a load buffer, which will write to cache using reply
     net_cmd.proc_cmd = pc;
 
 
-    return(net->to_net(node, PRI0, net_cmd));
+    return(net->to_net(node, PRI0, net_cmd));  // PROI0 means net reply
       
   case WRITEBACK:
     copy_cache_line(mem[lcl], pc.data);  // other node trying to writeback data to the home site (Im the home site)
@@ -168,6 +187,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {  // maybe this will call the
   case INVALIDATE: 
   default:
     // ***** FYTD *****
+    
     return(false);  // need to return something for now
   }
 }

@@ -19,8 +19,14 @@ class iu_t {
   int local_accesses;
   int global_accesses;
 
-  data_t mem[MEM_SIZE];
-  data_t dir_mem[DIR_MEM_SIZE]; // data_t is data_t[CACHE_LINE_SIZE], which mean this one is a 2D array
+  typedef uint dir_t[CACHE_LINE_SIZE/4];  // CACHE_LINE_SIZE/4 = 2
+
+  data_t mem[MEM_SIZE]; // data_t is an array of CACHE_LINE_SIZE, which is 8 int
+  dir_t dir_mem[MEM_SIZE]; // dir_t is an array of 2 int, dir_mem has same # line as mem, 
+                           // first int is one hot encoding of each processor, 
+                           // second int is the state of the line
+
+  
 
   cache_t *cache;
   network_t *net;
