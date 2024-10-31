@@ -49,7 +49,7 @@ void iu_t::advance_one_cycle() {
     pri0_p = true;
     pri0 = net->from_net(node, PRI0); // get the request from the network
   } else if (pri0_p) { // true if there is a request on hold
-    if (!process_net_reply(pri0)) { // true means the request is not completed, need to retry
+    if (!process_net_reply(pri0)) {
       pri0_p = false;
     }
 
@@ -57,7 +57,7 @@ void iu_t::advance_one_cycle() {
     pri1_p = true;
     pri1 = net->from_net(node, PRI1); // get the request from the network
   } else if (pri1_p) { // true if there is a request on hold
-    if (!process_net_request(pri1)) { // true means the request is not completed, need to retry
+    if (!process_net_request(pri1)) {
       pri1_p = false;
     }
 
@@ -85,7 +85,7 @@ void iu_t::advance_one_cycle() {
     if (!process_proc_request(proc_cmd)) {  // process_proc_request return false means the request is completed, true means the request is not completed (e.g., the request is sent to the network)
       proc_cmd_p = false;
     }
-  }    // ???snoop here??? would here causing dead lock?
+  }
 }
 
 // processor side
