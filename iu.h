@@ -23,7 +23,7 @@ class iu_t {
 
   data_t mem[MEM_SIZE]; // data_t is an array of CACHE_LINE_SIZE, which is 8 int
   dir_t dir_mem[MEM_SIZE]; // dir_t is an array of 2 int, dir_mem has same # line as mem, 
-                           // first int is one hot encoding of each processor, 
+                           // first int is one hot encoding of each processor,   // start compare from the LSB (node0), the [n-1, n-2, ...,1,0] bit represent the ownership of the data
                            // second int is the state of the line
 
   
@@ -36,6 +36,15 @@ class iu_t {
 
   bool proc_cmd_writeback_p;
   proc_cmd_t proc_cmd_writeback;
+
+  bool pri3_p;
+  net_cmd_t pri3;
+  bool pri2_p;
+  net_cmd_t pri2;
+  bool pri1_p;
+  net_cmd_t pri1;
+  bool pri0_p;
+  net_cmd_t pri0;
 
   // processor side
   bool process_proc_request(proc_cmd_t proc_cmd);

@@ -30,6 +30,10 @@ iu_t::iu_t(int __node) {
 
   proc_cmd_p = false;  // default is false
   proc_cmd_writeback_p = false; // this is a writeback request from the processor
+  pri3_p = false; 
+  pri2_p = false;
+  pri1_p = false;
+  pri0_p = false;
   
 }
 
@@ -41,25 +45,42 @@ void iu_t::bind(cache_t *c, network_t *n) {
 
 // this method advances the IU by one cycle
 void iu_t::advance_one_cycle() {
-  if (net->from_net_p(node, PRI0)) {  //PRI0 is the highest priority
-    //network’s acknowledgment or response to a request that the IU (or a processor) previously sent. 
-    // Replies indicate that the requested operation (e.g., a read, write, or invalidation) has been completed, 
-    // and they typically contain data or status information.
-    process_net_reply(net->from_net(node, PRI0));
-
-  } else if (net->from_net_p(node, PRI1)) { // from_net_p is a boolean that checks if there is a request from the network to the IU
-    process_net_request(net->from_net(node, PRI1)); 
-
-  } else if (net->from_net_p(node, PRI2)) {
-    process_net_request(net->from_net(node, PRI2));
-
-  } else if (net->from_net_p(node, PRI3)) {
-    process_net_request(net->from_net(node, PRI3));
-
-  } else if (proc_cmd_writeback_p) { // proc_cmd_writeback_p is a boolean that checks if there is a writeback request from the processor to the IU?
-    if (process_proc_request(proc_cmd_writeback)) { // proc_cmd_writeback is a struct (proc_cmd_t) that contains the address, data, and busop, which defined in types.h
-      proc_cmd_writeback_p = false;
+  if (!pri0_p) { // true if there is no request on hold, create a pri0
+    pri0_p = true;
+    pri0 = net->from_net(node, PRI0); // get the request from the network
+  } else if (pri0_p) { // true if there is a request on hold
+    if (!process_net_reply(pri0)) { // true means the request is not completed, need to retry
+      pri0_p = false;
     }
+
+  } else if (!pri1_p) { // true if there is no request on hold, create a pri1
+    pri1_p = true;
+    pri1 = net->from_net(node, PRI1); // get the request from the network
+  } else if (pri1_p) { // true if there is a request on hold
+    if (!process_net_request(pri1)) { // true means the request is not completed, need to retry
+      pri1_p = false;
+    }
+
+  } else if (!pri2_p) {
+    pri2_p = true;
+    pri2 = net->from_net(node, PRI2);
+  } else if (pri2_p) {
+    if (!process_net_request(pri2)) {
+      pri2_p = false;
+    }
+
+  } else if (!pri3_p) {
+    pri3_p = true;
+    pri3 = net->from_net(node, PRI3);
+  } else if (pri3_p) {
+    if (!process_net_request(pri3)) {
+      pri3_p = false;
+    }
+  // } else if (proc_cmd_writeback_p) { // proc_cmd_writeback_p is a boolean that checks if there is a writeback request from the processor to the IU?
+  //   if (process_proc_request(proc_cmd_writeback)) { // proc_cmd_writeback is a struct (proc_cmd_t) that contains the address, data, and busop, which defined in types.h
+  //     proc_cmd_writeback_p = false;
+  //   }
+
   } else if (proc_cmd_p) { // in privous cycle, set proc_cmd_p to true, with it proc_cmd, in this cycles, we process the request, and set proc_cmd_p to false if the request is completed
     if (!process_proc_request(proc_cmd)) {  // process_proc_request return false means the request is completed, true means the request is not completed (e.g., the request is sent to the network)
       proc_cmd_p = false;
@@ -110,16 +131,44 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     case READ:
       // if it is a read, should we check the current tag state of the cache line first from the home site?
       // if the tag state is exclusive(means could be modified) in other node, we need other to writeback first
-      // if the tag state is shared, we can directly read the data from the local cache, but if we are doing RWITM, we need to invalidate other nodes (send net request)
+      // if the tag state is shared, we can directly read the data from the local cache, but if we are doing RWITM, we need to invalidate other nodes (send net request before change the data)
       // if the tag state is invalid, we can directly read the data from the local cache
       copy_cache_line(pc.data, mem[lcl]); // dest, src
       // here should ask home site to invalidate other cache lines if pc state is MODIFIED
-      if (dir_mem[lcl][1] == EXCLUSIVE) {
-        net_cmd_t net_cmd;
-        net_cmd.src = node;
-        net_cmd.dest = dest;
-        net_cmd.proc_cmd = (proc_cmd_t){INVALIDATE, pc.addr, 0, INVALID};
-        net->to_net(node, PRI3, net_cmd);
+      if (pc.permit_tag == MODIFIED) {  // RWITM
+        // for each nodes own the data, we need to send a INVALIDATE request to them
+        if(dir_mem[lcl][1] == SHARED) { // if the state is SHARED, we need to send a INVALIDATE request to the node 
+          //this line check bitwise or of dir_mem[lcl][0] is equal to 1 << node
+          if (dir_mem[lcl][0] != int(1 << node)) {  // this check if all other nodes invalidate the data
+            for (int i = 0; i < 32; ++i) {
+              if (dir_mem[lcl][0] & (1 << i)) { // start compare from the LSB (node0), the [n-1, n-2, ...,1,0] bit represent the ownership of the data
+                net_cmd_t net_cmd;
+                net_cmd.src = node;
+                net_cmd.dest = i;
+                net_cmd.proc_cmd = (proc_cmd_t){INVALIDATE, pc.addr, 0, INVALID};  // {busop, addr, tag, permit_tag} homesite send invalidation request to the node who has the data
+                net->to_net(node, PRI1, net_cmd); // PRI1: homesite send request to remote
+              }
+            return(true); // need to retry
+            }
+          } else {  // all other nodes data are invalidated, now we can change the data to MODIFIED in cache, no retry
+            // cache->reply(pc);  no need this line, since the node has the updated data
+            dir_mem[lcl][1] = EXCLUSIVE; // change the state in dir_mem to EXCLUSIVE ???  
+            return(false);
+          } 
+        }else if(dir_mem[lcl][1] == EXCLUSIVE) { // if the state is EXCLUSIVE (Modified)
+          // sanity check in dir_mem, that current node is the only owner of the data  !!! some one
+          if (dir_mem[lcl][0] != int(1 << node)) { ERROR("more than one node has the data"); }
+          return(false);
+        }else if(dir_mem[lcl][1] == INVALID) { // no one has the data
+          dir_mem[lcl][0] = 1 << node; // set the ownership to the current node
+          dir_mem[lcl][1] = EXCLUSIVE; // set the state to EXCLUSIVE
+
+          // write the data from MEM to cache
+          cache->reply(pc);
+          return(false);
+        }
+            
+          
       }
 
       cache->reply(pc);
