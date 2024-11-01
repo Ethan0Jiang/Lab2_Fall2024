@@ -130,7 +130,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
       net_cmd.src = node;
       net_cmd.dest = gen_node(proc_cmd_writeback.addr);
       net_cmd.proc_cmd = proc_cmd_writeback;
-      if(net->to_net(node, PRI1, net_cmd)){ // return a true is put into the networke
+      if(net->to_net(node, PRI1, net_cmd)){ // return a true is put into the network
         //clear the local writeback buffer because the writeback is committed to network
         proc_cmd_writeback_p = false;
         return true; //need to retry the process_proc_request to move on
@@ -149,7 +149,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     switch(pc.busop) {
     case READ:    
     // READ only
-    if (pc.permit_tag == SHARED || pc.permit_tag == EXCLUSIVE) { // cache is read only
+    if (pc.permit_tag == SHARED) { // cache is read only
       // check the DIR_MEM to the state of the cache line
       if (dir_mem[lcl][1] == INVALID){ // no one has the data, but we may need envict data out
       // to do the eviction, we first snoop the data, and evict the data to proc_cmd_writeback if needed
@@ -178,8 +178,8 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         // in PRI3, we send a prority 2 request as the confirmation, make sure only send once
 
         //Generate secondary request
-        // in PROI2 commands, permit_tag means the state that node need to go to
-        proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 2, SHARED};//READ busop, requesting address, priority 2, SHARED (other guy go shared, sharing is caring), data is not needed
+        // in PROI2 commands, permit_tag means the state at the HOME site
+        proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 2, EXCLUSIVE};//READ busop, requesting address, priority 2, data is not needed
         net_cmd_t net_cmd;
         net_cmd.dest = gen_node(pc.addr);
         net_cmd.src  = node;
@@ -241,7 +241,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
           }
         } //this will never be retried in this branch, but may be retried in the proc_net_request(PRI3) branch.
 
-        if (&invalid_send_count == 0){ // if all the invalidation request is sent
+        if (invalid_send_count == 0){ // if all the invalidation request is sent
           pri2_sent_p = true;
         } else {
           pri2_sent_p = false;
@@ -306,7 +306,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     switch(pc.busop) {
       case READ:    
       // READ only
-        if (pc.permit_tag == SHARED || pc.permit_tag == EXCLUSIVE) { // cache is read only
+        if (pc.permit_tag == SHARED) { // cache is read only
           // check the DIR_MEM to the state of the cache line
           if (!pri3_sent_p){
             //Generate a PRI3 request
@@ -320,59 +320,148 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
           return(true);
         }
         else if (pc.permit_tag == MODIFIED){ //RWITM
-
+          if (!pri3_sent_p){
+            //Generate a PRI3 request
+            net_cmd_t net_cmd_P3;
+            net_cmd_P3.dest = dest;
+            net_cmd_P3.src  = node;
+            proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, pc.permit_tag}; // sent permit_tag but receive the updated permit_tag from PRIO0
+            net_cmd_P3.proc_cmd = temp_P3;
+            pri3_sent_p = net->to_net(node, PRI3, net_cmd_P3);
+          }
+          return(true);
         }
+      default: 
+        ERROR("Processor should have issued only Read miss or RWITM");
     }
-
-    net_cmd_t net_cmd;
-
-    net_cmd.src = node;  // node is the one sending the request
-    net_cmd.dest = dest;
-    net_cmd.proc_cmd = pc;
-
-    // for the WB case, return TRUE if goes to network successfully, not need to retry
-    // for the other cases, return TRUE if goes to network successfully, need to retry until success?
-    return(net->to_net(node, PRI1, net_cmd)); // return true if goes to network successfully
   }
-
-  return(false); // need to return something by default
+  return(true); // need to return something by default
 }
 
 
 // receive a net request
 bool iu_t::process_net_request(net_cmd_t net_cmd) { 
+  
   proc_cmd_t pc = net_cmd.proc_cmd;
-
-  int lcl = gen_local_cache_line(pc.addr);
-  int src = net_cmd.src;
-  int dest = net_cmd.dest;
-
   // ***** FYTD *****
   // sanity check
   if (gen_node(pc.addr) != node) 
     ERROR("sent to wrong home site!"); 
 
-  switch(pc.busop) {
-  case READ: // assume local     
-    net_cmd.dest = src;
-    net_cmd.src = dest;
-    // first check the dir_mem to see the state of the cache line
-    // if the state is Exclusive, we need other to writeback first
+  int lcl = gen_local_cache_line(pc.addr);
+  int src = net_cmd.src;
+  int dest = net_cmd.dest;
+
+  switch(pc.tag) {
+
+    // case 0:
+    //   ERROR("should not have gotten a PRI0 request in net request");
+    
+    case 1: 
+      if (pc.busop == READ) { // READ means not a eviction, src node still have the data
+        if (pc.permit_tag == EXCLUSIVE){ // the data maintains the same
+
+        }
+        else if (pc.permit_tag == MODIFIED){
+
+        }
+        else {
+          ERROR("For PRI1, READ's permit_tag should be EXCLUSIVE or MODIFIED");
+        }
+      }
+      else if (pc.busop == WRITEBACK) { // WRITEBACK means regular eviction, other src node do not have data anymore
+        if (pc.permit_tag == EXCLUSIVE){
+
+        }
+        else if (pc.permit_tag == MODIFIED){
+
+        } 
+        else if (pc.permit_tag == SHARED){
+
+        }
+        else {
+          ERROR("For PRI1, WRITEBACK's permit_tag should be EXCLUSIVE or MODIFIED or SHARED");
+        }
+    
+      } 
+      else if (pc.busop == INVALIDATE) { // INVALIDATE means coherent eviction, other src node do not have data anymore
+        if (pc.permit_tag == EXCLUSIVE){
+
+        }
+        else if (pc.permit_tag == MODIFIED){
+
+        } 
+        else if (pc.permit_tag == SHARED){
+
+        }
+        else {
+          ERROR("For PRI1, INVALIDATE's permit_tag should be EXCLUSIVE or MODIFIED or SHARED");
+        }
+      } else {
+        ERROR("should not have gotten a PRI1 request busop other than READ or WRITEBACK or INVALIDATE");
+
+      }
+    
+    
+
+    case 2: // for RPOI2, permit_tag is the state at HOME site
+      if (pc.busop == READ) { // case change local nodes from E->S, or ask for WB if local node is in M
+        if (pc.permit_tag == EXCLUSIVE){
+
+        }
+        else{
+          ERROR("For PRI2, READ's permit_tag should be EXCLUSIVE");
+        }
+      }
+      else if (pc.busop == INVALIDATE) { // case when Homesite doing invalidation, change local nodes to I
+        if (pc.permit_tag == SHARED) {
+
+        }
+        else if (pc.permit_tag == EXCLUSIVE){
+            
+        }
+        else {
+          ERROR("For PRI2, INVALIDATE's permit_tag should be SHARED");
+        }
+
+      } else {
+        ERROR("should not have gotten a PRI2 request busop other than READ or INVALIDATE");
+      }
+    
+
+    case 3: // PRI3
+      if (pc.busop == READ) {
+        if (pc.permit_tag == SHARED) { 
+
+
+        }
+        else if (pc.permit_tag == MODIFIED) {
+
+
+        }
+        else {
+          ERROR("should not have gotten a PRI3 request busop other than SHARED or MODIFIED");
+        }  
+      }
+      else {
+        ERROR("should not have gotten a PRI3 request for anything other than a READ");
+      }
+
+    default:
+    ERROR("Wrong bus tag for process_net_request to handle");
 
 
 
-    copy_cache_line(pc.data, mem[lcl]); // copy data from local to a load buffer, which will write to cache using reply
-    net_cmd.proc_cmd = pc;
 
 
-    return(net->to_net(node, PRI0, net_cmd));  // PROI0 means net reply
-      
-  case WRITEBACK:
-    copy_cache_line(mem[lcl], pc.data);  // other node trying to writeback data to the home site (Im the home site)
-    return(false);
-      
-  case INVALIDATE: 
-  default:
+
+
+
+
+
+
+
+
     // ***** FYTD *****
     
     return(false);  // need to return something for now
@@ -386,20 +475,21 @@ bool iu_t::process_net_reply(net_cmd_t net_cmd) {    // this is a reply from the
   // ***** FYTD *****
 
   proc_cmd_p = false; // clear out request that this reply is a reply to
+    
+    switch(pc.busop) {
+    case READ: // assume local
+      cache->reply(pc);
+      return(false);
+        
+    case WRITEBACK:
+    case INVALIDATE:
+      ERROR("should not have gotten a reply back from a write or an invalidate, since we are incoherent");
+      return(false);  // need to return something for now
+    default:
+      ERROR("should not reach default");
+      return(false);  // need to return something
+    }
 
-  switch(pc.busop) {
-  case READ: // assume local
-    cache->reply(pc);
-    return(false);
-      
-  case WRITEBACK:
-  case INVALIDATE:
-    ERROR("should not have gotten a reply back from a write or an invalidate, since we are incoherent");
-    return(false);  // need to return something for now
-  default:
-    ERROR("should not reach default");
-    return(false);  // need to return something
-  }
 }
 
 void iu_t::print_stats() {

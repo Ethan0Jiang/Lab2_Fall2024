@@ -36,8 +36,8 @@ response_t cache_t::snoop(proc_cmd_t proc_cmd) {
     }
 
     if (tags[car.set][car.way].permit_tag == MODIFIED ||
-        tags[car.set][car.way].permit_tag == EXCLUSIVE ||
-        tags[car.set][car.way].permit_tag == SHARED) { // need to writeback since replacing modified line
+          tags[car.set][car.way].permit_tag == SHARED || // in case we will later on comment out shared
+        tags[car.set][car.way].permit_tag == EXCLUSIVE) { // need to writeback since replacing modified line
       proc_cmd_t wb;
       wb.busop = WRITEBACK;
       // the avaliable data including, address_tag(needed), node_id(include in address_tag), also the shifting index
@@ -50,6 +50,7 @@ response_t cache_t::snoop(proc_cmd_t proc_cmd) {
       if (iu->from_proc_writeback(wb)) {
         ERROR("The local WB buffer should be empty from proc_cmd call");  // retry's WB has the highest priority, but snoop no need to to has the highest priority
       }
+      //!!!
       tags[car.set][car.way].permit_tag = INVALID; //writeback request is put into buffer, update cache state to INVALID
       // if there is a data need to writeback, then return retry
       r.hit_p = true;
