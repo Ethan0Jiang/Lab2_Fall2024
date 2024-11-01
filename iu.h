@@ -46,6 +46,12 @@ class iu_t {
   bool pri0_p;
   net_cmd_t pri0;
 
+  bool pri0_sent_p; // true means send.
+  bool pri1_sent_p; // true means send.
+  bool pri2_sent_p; // true means send. 
+  bool pri3_sent_p; // true means send.
+
+
   // processor side
   bool process_proc_request(proc_cmd_t proc_cmd);
 

@@ -120,7 +120,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
   //extra logic to process local writeback
   if(proc_cmd_writeback_p){
     if(gen_node(proc_cmd_writeback.addr) == node){ //local writeback 
-      copy_cache_line(mem[lcl], proc_cmd_writeback.data);//do local writeback
+      copy_cache_line(mem[lcl], proc_cmd_writeback.data);//do local writeback, from cache to memory
       proc_cmd_writeback_p = false;//clear proc_cmd_writeback_p    
     }
     else{//network writeback, put into net request (PRI1)
@@ -140,19 +140,13 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     }
   }
 
-  if (snoop_p.retry_p == true) { // if the snoop request is not completed, return true
-    return true;
-  }
-  
   if (dest == node) { // local
 
     ++local_accesses;  // local access increase when hit or not???
     // proc_cmd_p = false; // clear proc_cmd, not guarantee that the request is completed
     
     switch(pc.busop) {
-    case READ:
-      copy_cache_line(pc.data, mem[lcl]); // dest, src
-    
+    case READ:    
     // READ only
     if (pc.permit_tag == SHARED || pc.permit_tag == EXCLUSIVE) { // cache is read only
       // check the DIR_MEM to the state of the cache line
@@ -163,8 +157,8 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
       // and then this function return true
 
       // if no eviction needed, snoop return false, and we can call reply to read data into the cache
-        dir_mem[lcl][1] == EXCLUSIVE;
-        dir_mem[lcl][0] == 1 << node;
+        dir_mem[lcl][1] = EXCLUSIVE;
+        dir_mem[lcl][0] = 1 << node;
         
         proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, EXCLUSIVE};
         copy_cache_line(pc.data, mem[lcl]);
@@ -172,10 +166,39 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         return(false);
       }
       else if (dir_mem[lcl][1] == SHARED){
-
+        dir_mem[lcl][0] |= 1 << node;
+        proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, SHARED};
+        copy_cache_line(pc.data, mem[lcl]);
+        cache->reply(temp);
+        return(false);
       }
       else if (dir_mem[lcl][1] == EXCLUSIVE){
+        // This request needs to be put into the PRI3 buffer at this point
+        // in PRI3, we send a prority 2 request as the confirmation, make sure only send once
 
+        //Generate secondary request
+        proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 2, SHARED};//READ busop, requesting address, priority 2, SHARED (other guy go shared, sharing is caring), data is not needed
+        net_cmd_t net_cmd;
+        net_cmd.dest = gen_node(pc.addr);
+        net_cmd.src  = node;
+        net_cmd.proc_cmd = temp;
+
+        //Attempt sending secondary request
+        if(net->to_net(net_cmd.dest,PRI2,net_cmd)){
+          pri2_sent_p = true; // in PRI3, we need to recheck those flags  
+        }
+        else{ //failed, promoted P3 request will retry
+          pri2_sent_p = false;
+        }
+
+        //promote here (LETS GOOOO I EARN 2% MORE SALARY NOW FOR DOUBLE THE WORK!!!!)
+        pri3_p = true;
+        proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, EXCLUSIVE};
+        net_cmd_t promoted_P3;
+        promoted_P3.dest = node;
+        promoted_P3.src  = node;
+        promoted_P3.proc_cmd = temp_P3;
+        pri3 = promoted_P3;
       }
       else{
         ERROR("Modified or non-ESI state in directory entry not allowed.");
