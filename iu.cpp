@@ -45,6 +45,7 @@ void iu_t::bind(cache_t *c, network_t *n) {
 
 // this method advances the IU by one cycle
 void iu_t::advance_one_cycle() {
+  
   if (!pri0_p) { // true if there is no request on hold, create a pri0
     pri0_p = true;
     pri0 = net->from_net(node, PRI0); // get the request from the network
@@ -193,63 +194,80 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
 
         //promote here (LETS GOOOO I EARN 2% MORE SALARY NOW FOR DOUBLE THE WORK!!!!)
         pri3_p = true;
-        proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, EXCLUSIVE};
-        net_cmd_t promoted_P3;
-        promoted_P3.dest = node;
-        promoted_P3.src  = node;
-        promoted_P3.proc_cmd = temp_P3;
-        pri3 = promoted_P3;
+        proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, EXCLUSIVE}; //Need to generate confirmation request for Read Miss
+        pri3.dest = node;
+        pri3.src  = node;
+        pri3.proc_cmd = temp_P3;
       }
       else{
         ERROR("Modified or non-ESI state in directory entry not allowed.");
       }
-      // // RWITM
-      // if (pc.permit_tag == MODIFIED) {  // RWITM, cache will modify the data
-      //   // for each nodes own the data, we need to send a INVALIDATE request to them
-      //   if(dir_mem[lcl][1] == SHARED) { // if the state is SHARED, we need to send a INVALIDATE request to the node 
-      //     //this line check bitwise or of dir_mem[lcl][0] is equal to 1 << node
-      //     if (dir_mem[lcl][0] != int(1 << node)) {  // this check if all other nodes invalidate the data
-      //       for (int i = 0; i < 32; ++i) {
-      //         if (dir_mem[lcl][0] & (1 << i)) { // start compare from the LSB (node0), the [n-1, n-2, ...,1,0] bit represent the ownership of the data
-      //           net_cmd_t net_cmd;
-      //           net_cmd.src = node;
-      //           net_cmd.dest = i;
-      //           net_cmd.proc_cmd = (proc_cmd_t){INVALIDATE, pc.addr, 0, INVALID};  // {busop, addr, tag, permit_tag} homesite send invalidation request to the node who has the data
-      //           net->to_net(node, PRI1, net_cmd); // PRI1: homesite send request to remote
-      //         }
-      //       return(true); // need to retry
-      //       }
-      //     } else {  // all other nodes data are invalidated, now we can change the data to MODIFIED in cache, no retry
-      //       // cache->reply(pc);  no need this line, since the node has the updated data
-      //       dir_mem[lcl][1] = EXCLUSIVE; // change the state in dir_mem to EXCLUSIVE ???  
-      //       return(false);
-      //     } 
-      //   }else if(dir_mem[lcl][1] == EXCLUSIVE) { // if the state is EXCLUSIVE (Modified)
-      //     // sanity check in dir_mem, that current node is the only owner of the data  !!! some one
-      //     if (dir_mem[lcl][0] != int(1 << node)) { ERROR("more than one node has the data"); }
-      //     return(false);
-      //   }else if(dir_mem[lcl][1] == INVALID) { // no one has the data
-      //     dir_mem[lcl][0] = 1 << node; // set the ownership to the current node
-      //     dir_mem[lcl][1] = EXCLUSIVE; // set the state to EXCLUSIVE
-
-      //     // write the data from MEM to cache
-      //     cache->reply(pc);
-      //     return(false);
-      //   }
-            
-      cache->reply(pc);
-
-      return(false);   
     } 
     else if(pc.permit_tag == MODIFIED){ //RWITM
       if (dir_mem[lcl][1] == INVALID){
-
+        dir_mem[lcl][1] = EXCLUSIVE;
+        dir_mem[lcl][0] = 1 << node;
+        
+        proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, MODIFIED}; //READ, addr, 0, MODIFIED
+        copy_cache_line(pc.data, mem[lcl]);
+        cache->reply(temp);
+        return(false);
       }
-      else if (dir_mem[lcl][1] == SHARED){
+      else if (dir_mem[lcl][1] == SHARED){ //generate invalidations, multicast or broadcast
+        //implement invalidation issuing retry buffer
+        if(!invalid_sent_init){
+          invalid_send_count = dir_mem[lcl][0];
+          invalid_sent_init = true;
+        }
 
+        for(int i = 0; i < 32; i++){
+          // for each 32 node, we generate a invalidation request to that node
+          // check the bit on invalid_send_count, if it is 1, we generate a invalidation request
+          if(invalid_send_count & 1 << i){
+            proc_cmd_t temp = (proc_cmd_t){INVALIDATE, pc.addr, 0, SHARED};
+            net_cmd_t net_cmd;
+            net_cmd.dest = i;
+            net_cmd.src  = node;
+            net_cmd.proc_cmd = temp;
+            if(net->to_net(i, PRI2, net_cmd)){
+              invalid_send_count &= ~(1 << i); // clear the bit
+            }
+          }
+        } //this will never be retried in this branch, but may be retried in the proc_net_request(PRI3) branch.
+
+        // promote to PRI3
+        pri3_p = true;
+        proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, MODIFIED}; // need to generate invalidations for RWITM
+        pri3.dest = node;
+        pri3.src  = node;
+        pri3.proc_cmd = temp_P3;
       }
-      else if (dir_mem[lcl][1] == EXCLUSIVE){
-
+      else if (dir_mem[lcl][1] == EXCLUSIVE){ // do  E->I->E
+        // generate an invalidation request to the owner of the data
+        net_cmd_t invalidate_cmd;
+        // in dir_mem, who has the data
+        for(int i=0; i<32; i++){
+          if(dir_mem[lcl][0] == i<<1){
+            invalidate_cmd.dest=i;
+            break;
+          }
+        }
+        invalidate_cmd.src  = node;
+        proc_cmd_t temp = (proc_cmd_t){INVALIDATE, pc.addr, 2, EXCLUSIVE}; 
+        invalidate_cmd.proc_cmd = temp;
+        if(net->to_net(invalidate_cmd.dest, PRI2, invalidate_cmd)){
+          pri2_sent_p = true;
+        }
+        else{
+          pri2_sent_p = false;
+        }
+        
+        // promote to PRI3
+        pri3_p = true;
+        proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, MODIFIED};
+        pri3.dest = node;
+        pri3.src  = node;
+        pri3.proc_cmd = temp_P3;   // TODO: Review everything and finish up base implementation !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       }
       else{
         ERROR("Modified or non-ESI state in directory entry is not allowed.");
@@ -273,6 +291,28 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
   
   } else { // global
     ++global_accesses;
+
+    switch(pc.busop) {
+    case READ:    
+    // READ only
+    if (pc.permit_tag == SHARED || pc.permit_tag == EXCLUSIVE) { // cache is read only
+      // check the DIR_MEM to the state of the cache line
+      if (!pri3_sent_p){
+        //Generate a PRI3 request
+        net_cmd_t net_cmd_P3;
+        net_cmd_P3.dest = dest;
+        net_cmd_P3.src  = node;
+        proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, pc.permit_tag}; // sent permit_tag but receive the updated permit_tag from PRIO0
+        net_cmd_P3.proc_cmd = temp_P3;
+        pri3_sent_p = net->to_net(node, PRI3, net_cmd_P3);
+      }
+      return(true);
+    }
+    else if (pc.permit_tag == MODIFIED){ //RWITM
+
+    }
+      
+
     net_cmd_t net_cmd;
 
     net_cmd.src = node;  // node is the one sending the request
@@ -289,7 +329,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
 
 
 // receive a net request
-bool iu_t::process_net_request(net_cmd_t net_cmd) {  // maybe this will call the snoop? 
+bool iu_t::process_net_request(net_cmd_t net_cmd) { 
   proc_cmd_t pc = net_cmd.proc_cmd;
 
   int lcl = gen_local_cache_line(pc.addr);

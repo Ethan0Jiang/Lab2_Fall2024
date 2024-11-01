@@ -46,10 +46,13 @@ class iu_t {
   bool pri0_p;
   net_cmd_t pri0;
 
-  bool pri0_sent_p; // true means send.
-  bool pri1_sent_p; // true means send.
-  bool pri2_sent_p; // true means send. 
-  bool pri3_sent_p; // true means send.
+  bool pri0_sent_p = false; // true means send.
+  bool pri1_sent_p = false; // true means send.
+  bool pri2_sent_p = false; // true means send. 
+  bool pri3_sent_p = false; // true means send.
+
+  int invalid_send_count = 0;
+  bool invalid_sent_init = false;
 
 
   // processor side
