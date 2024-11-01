@@ -157,18 +157,18 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
       // and then do the local writeback or generate a net_request (PRI1) to the network
       // and then this function return true
 
-      // if no eviction needed, snoop return false, and we can call reply to read data into the cache
         dir_mem[lcl][1] = EXCLUSIVE;
-        dir_mem[lcl][0] = 1 << node;
+        dir_mem[lcl][0] = 1 << node; // 1 << 0 is 00000001, 1 << 1 is 00000010, 1 << 2 is 00000100, 1 << 3 is 00001000
         
-        proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, EXCLUSIVE};
+        proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, EXCLUSIVE}; // set requesting node cache to exclusive
         copy_cache_line(pc.data, mem[lcl]);
         cache->reply(temp);
         return(false);
       }
       else if (dir_mem[lcl][1] == SHARED){
         dir_mem[lcl][0] |= 1 << node;
-        proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, SHARED};
+        // In PROI0 commands, permit_tag means the state that remote node cache need to go to
+        proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, SHARED}; // set requesting node cache to shared
         copy_cache_line(pc.data, mem[lcl]);
         cache->reply(temp);
         return(false);
@@ -178,26 +178,32 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         // in PRI3, we send a prority 2 request as the confirmation, make sure only send once
 
         //Generate secondary request
+        // in PROI2 commands, permit_tag means the state that node need to go to
         proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 2, SHARED};//READ busop, requesting address, priority 2, SHARED (other guy go shared, sharing is caring), data is not needed
         net_cmd_t net_cmd;
         net_cmd.dest = gen_node(pc.addr);
         net_cmd.src  = node;
         net_cmd.proc_cmd = temp;
 
+
+        // IMP: this could be buggy, how can we tell this pri2_sent_p is for this request or another request, when to reset this flag?
+        // IMP: reset pri2_sent_p to false when process_net_request(PRIO3) is killed
         //Attempt sending secondary request
-        if(net->to_net(net_cmd.dest,PRI2,net_cmd)){
-          pri2_sent_p = true; // in PRI3, we need to recheck those flags  
+        if(net->to_net(node,PRI2,net_cmd)){ // IMP: the first argument is the src node!
+          pri2_sent_p = true; 
         }
         else{ //failed, promoted P3 request will retry
-          pri2_sent_p = false;
+          pri2_sent_p = false; // by default is false
         }
 
         //promote here (LETS GOOOO I EARN 2% MORE SALARY NOW FOR DOUBLE THE WORK!!!!)
         pri3_p = true;
-        proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, EXCLUSIVE}; //Need to generate confirmation request for Read Miss
+        // in PROI3 commands, permit_tag is the state receive from cache (least request state)
+        proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, SHARED}; //Need to generate confirmation request for Read Miss
         pri3.dest = node;
         pri3.src  = node;
         pri3.proc_cmd = temp_P3;
+        return true;
       }
       else{
         ERROR("Modified or non-ESI state in directory entry not allowed.");
@@ -215,25 +221,31 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
       }
       else if (dir_mem[lcl][1] == SHARED){ //generate invalidations, multicast or broadcast
         //implement invalidation issuing retry buffer
-        if(!invalid_sent_init){
-          invalid_send_count = dir_mem[lcl][0];
-          invalid_sent_init = true;
-        }
+        invalid_send_count = dir_mem[lcl][0];
 
+
+        /// !!create a function for this part!!
         for(int i = 0; i < 32; i++){
           // for each 32 node, we generate a invalidation request to that node
-          // check the bit on invalid_send_count, if it is 1, we generate a invalidation request
+          // check the bit on invalid_send_count, if it is 1, we generate a invalidation request (PRIO2)
           if(invalid_send_count & 1 << i){
-            proc_cmd_t temp = (proc_cmd_t){INVALIDATE, pc.addr, 0, SHARED};
+            proc_cmd_t temp = (proc_cmd_t){INVALIDATE, pc.addr, 2, SHARED}; // for RPOI2, permit_tag is the state at HOME site
             net_cmd_t net_cmd;
             net_cmd.dest = i;
             net_cmd.src  = node;
             net_cmd.proc_cmd = temp;
-            if(net->to_net(i, PRI2, net_cmd)){
-              invalid_send_count &= ~(1 << i); // clear the bit
+            // IMP: the first argument should be the src node!
+            if(net->to_net(node, PRI2, net_cmd)){
+              invalid_send_count &= ~(1 << i); // clear the bit 
             }
           }
         } //this will never be retried in this branch, but may be retried in the proc_net_request(PRI3) branch.
+
+        if (&invalid_send_count == 0){ // if all the invalidation request is sent
+          pri2_sent_p = true;
+        } else {
+          pri2_sent_p = false;
+        }
 
         // promote to PRI3
         pri3_p = true;
@@ -241,13 +253,15 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         pri3.dest = node;
         pri3.src  = node;
         pri3.proc_cmd = temp_P3;
+
+        return true;
       }
       else if (dir_mem[lcl][1] == EXCLUSIVE){ // do  E->I->E
         // generate an invalidation request to the owner of the data
         net_cmd_t invalidate_cmd;
         // in dir_mem, who has the data
         for(int i=0; i<32; i++){
-          if(dir_mem[lcl][0] == i<<1){
+          if(dir_mem[lcl][0] == (1 << i)){
             invalidate_cmd.dest=i;
             break;
           }
@@ -255,7 +269,8 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         invalidate_cmd.src  = node;
         proc_cmd_t temp = (proc_cmd_t){INVALIDATE, pc.addr, 2, EXCLUSIVE}; 
         invalidate_cmd.proc_cmd = temp;
-        if(net->to_net(invalidate_cmd.dest, PRI2, invalidate_cmd)){
+
+        if(net->to_net(node, PRI2, invalidate_cmd)){ 
           pri2_sent_p = true;
         }
         else{
@@ -267,7 +282,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, MODIFIED};
         pri3.dest = node;
         pri3.src  = node;
-        pri3.proc_cmd = temp_P3;   // TODO: Review everything and finish up base implementation !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        pri3.proc_cmd = temp_P3;
       }
       else{
         ERROR("Modified or non-ESI state in directory entry is not allowed.");
@@ -276,8 +291,6 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     else{
       ERROR("should not request READ to INVALID state");
     }
-
-      
     // case WRITEBACK: // maybe this case will not be used
     //   copy_cache_line(mem[lcl], pc.data);
     //   return(false);
@@ -286,32 +299,30 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     //   // ***** FYTD *****
     //   return(false);  // need to return something for now
     //   break;
-    }
-    
-  
+    } // end of switch
   } else { // global
     ++global_accesses;
 
     switch(pc.busop) {
-    case READ:    
-    // READ only
-    if (pc.permit_tag == SHARED || pc.permit_tag == EXCLUSIVE) { // cache is read only
-      // check the DIR_MEM to the state of the cache line
-      if (!pri3_sent_p){
-        //Generate a PRI3 request
-        net_cmd_t net_cmd_P3;
-        net_cmd_P3.dest = dest;
-        net_cmd_P3.src  = node;
-        proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, pc.permit_tag}; // sent permit_tag but receive the updated permit_tag from PRIO0
-        net_cmd_P3.proc_cmd = temp_P3;
-        pri3_sent_p = net->to_net(node, PRI3, net_cmd_P3);
-      }
-      return(true);
-    }
-    else if (pc.permit_tag == MODIFIED){ //RWITM
+      case READ:    
+      // READ only
+        if (pc.permit_tag == SHARED || pc.permit_tag == EXCLUSIVE) { // cache is read only
+          // check the DIR_MEM to the state of the cache line
+          if (!pri3_sent_p){
+            //Generate a PRI3 request
+            net_cmd_t net_cmd_P3;
+            net_cmd_P3.dest = dest;
+            net_cmd_P3.src  = node;
+            proc_cmd_t temp_P3 = (proc_cmd_t){pc.busop, pc.addr, 3, pc.permit_tag}; // sent permit_tag but receive the updated permit_tag from PRIO0
+            net_cmd_P3.proc_cmd = temp_P3;
+            pri3_sent_p = net->to_net(node, PRI3, net_cmd_P3);
+          }
+          return(true);
+        }
+        else if (pc.permit_tag == MODIFIED){ //RWITM
 
+        }
     }
-      
 
     net_cmd_t net_cmd;
 

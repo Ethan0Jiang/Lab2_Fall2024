@@ -52,7 +52,6 @@ class iu_t {
   bool pri3_sent_p = false; // true means send.
 
   int invalid_send_count = 0;
-  bool invalid_sent_init = false;
 
 
   // processor side
