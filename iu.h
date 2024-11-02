@@ -37,7 +37,7 @@ class iu_t {
   bool proc_cmd_writeback_p;
   proc_cmd_t proc_cmd_writeback;
 
-  bool proc_cmd_writeback_p_PRI2;
+  bool proc_cmd_writeback_p_PRI2 = false;
   proc_cmd_t proc_cmd_writeback_PRI2;
 
   bool pri3_p;

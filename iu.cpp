@@ -423,20 +423,28 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
         }
       } else {
         ERROR("should not have gotten a PRI1 request busop other than READ or WRITEBACK or INVALIDATE");
-
       }
-    
-    
 
     case 2: // for PRI2, permit_tag is the state at HOME site
       if (pc.busop == READ) { // case change local nodes from E->S, or ask for WB if local node is in M
         if (pc.permit_tag == EXCLUSIVE){
           // EXCLUSIVE is the permit_tag from the homesite, we change it to SHARED if snooped in cache
           // Do nothing if it is INVALID in cache
+          if(!proc_cmd_writeback_p_PRI2)
+            response_t YOYOYO = cache->snoop(pc);
 
-          response_t yourmomisfat = cache->snoop(pc);
-
-          
+          if(proc_cmd_writeback_p_PRI2){
+            net_cmd_t reply_p1;
+            reply_p1.dest = src;
+            reply_p1.src  = node;
+            reply_p1.proc_cmd = proc_cmd_writeback_PRI2;
+            if(net->to_net(node,PRI1,reply_p1)){
+              proc_cmd_writeback_p_PRI2 = false;
+              return false;
+            }
+            return true;
+          }          
+          return false;
         }
         else{
           ERROR("For PRI2, READ's permit_tag should be EXCLUSIVE");
@@ -445,16 +453,45 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
       else if (pc.busop == INVALIDATE) { // case when Homesite doing invalidation, change local nodes to I
         if (pc.permit_tag == SHARED) {
           // SHARED is the permit_tag from the homesite
-          response_t DerekIsHotAF = cache->snoop(pc);
-          
+          if(!proc_cmd_writeback_p_PRI2)
+            response_t DerekIsHotAF = cache->snoop(pc);
+            
+          if (proc_cmd_writeback_p_PRI2){
+            net_cmd_t reply_p1;
+            reply_p1.dest = src;
+            reply_p1.src = node;
+            reply_p1.proc_cmd = proc_cmd_writeback_PRI2;
+            if (net->to_net(node, PRI1, reply_p1)){
+              proc_cmd_writeback_p_PRI2 = false;
+              return false; // means request completed
+            }
+            return true; // means request not completed
+          }
+          return false;
         }
         else if (pc.permit_tag == EXCLUSIVE){
           // EXCLUSIVE at the homesite, but could be modified at the local node
-          response_t CHIOUCHIOUMOTHAFUCKA = cache->snoop(pc);
+          if(!proc_cmd_writeback_p_PRI2)
+            response_t CHIOUCHIOUUUUUBUYMEACAR = cache->snoop(pc);
+            
+          if (proc_cmd_writeback_p_PRI2){
+            net_cmd_t reply_p1;
+            reply_p1.dest = src;
+            reply_p1.src = node;
+            reply_p1.proc_cmd = proc_cmd_writeback_PRI2;
+            if (net->to_net(node, PRI1, reply_p1)){
+              proc_cmd_writeback_p_PRI2 = false;
+              return false; // means request completed
+            }
+            return true; // means request not completed
+          }
+          return false;
         }
         else {
           ERROR("For PRI2, INVALIDATE's permit_tag should be SHARED");
         }
+        
+          
 
       } else {
         ERROR("should not have gotten a PRI2 request busop other than READ or INVALIDATE");
@@ -612,22 +649,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
 
     default:
     ERROR("Wrong bus tag for process_net_request to handle");
-
-
-
-
-
-
-
-
-
-
-
-
-
-    // ***** FYTD *****
-    
-    return(false);  // need to return something for now
+    return(true); // need to return something
   }
 }
 
