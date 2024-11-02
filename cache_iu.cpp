@@ -156,7 +156,7 @@ response_t cache_t::snoop(proc_cmd_t proc_cmd) {
   }
   //if no open spot, try to do LRU eviction without updating the LRU bits?
 
-
+  return r; 
 
 }
 

@@ -285,7 +285,7 @@ response_t cache_t::store(address_t addr, bus_tag_t tag, int data, bool retried_
       // if the cache line is not in the cache, issue a read request to the next level of memory hierarchy
       proc_cmd_t proc_cmd = (proc_cmd_t){READ, addr, tag, MODIFIED}; // MODIFIED is the next state
       if (iu->from_proc(proc_cmd)) { 
-	ERROR("should not retry from_proc:store INVALID"); // sending the cmd to iu should not be retried
+	      ERROR("should not retry from_proc:store INVALID"); // sending the cmd to iu should not be retried
       }
       // if the cache line is not in the cache, increment the misses counter
       ++misses;

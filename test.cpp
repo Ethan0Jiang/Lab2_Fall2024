@@ -41,16 +41,18 @@ test_args_t test_args;
 void init_test() {
   switch(args.test) {
   case 0:
-    test_args.addr_range = 8192;  // addr range is # cache lines * words per cache line * number of processors = 1024* 8 * 1  = 8192 in case 0
-    // test_args.addr_range = 512；
+    // test_args.addr_range = 8192;  // addr range is # cache lines * words per cache line * number of processors = 1024* 8 * 1  = 8192 in case 0
+    test_args.addr_range = 512;
     break;
 
   case 1: // 4 cores test
-    test_args.addr_range = 8192 * 4;
+    // test_args.addr_range = 8192 * 4;
+    test_args.addr_range = 512*4;
     break;
 
   case 2: // 4 cores test
-    test_args.addr_range = 8192 * 4;
+    // test_args.addr_range = 8192 * 4;
+    test_args.addr_range = 512*4;
     break;
 
   default:
@@ -130,8 +132,8 @@ void proc_t::advance_one_cycle() {
       if (proc < 3) {  // 3 processors (0~2) share the same address
         if (!response.retry_p) {
           addr = 324; // Fixed address
-          response = cache->load(addr, 0, &data, response.retry_p);
-        }
+        }        
+        response = cache->load(addr, 0, &data, response.retry_p);
         if (args.verbose) {
           printf("Processor %d: Loading from address %d, data: %d\n", proc, addr, data);
         }
@@ -141,16 +143,15 @@ void proc_t::advance_one_cycle() {
         int set_mask = (1 << lg_num_sets) - 1;
         int set = (addr >> set_shift) & set_mask;
         // Different addresses with same set, random address but with set bits replace back
-        if (!response.retry_p || op_count < 4) {
+        if (!response.retry_p && op_count < 4) {
           addr = (random() % 8192) & ~(set_mask << set_shift); // Clear set bits
           addr |= (set << set_shift); // Apply the calculated set bits
           op_count++;
-          response = cache->store(addr, 0, cur_cycle, response.retry_p);
-        } else if (!response.retry_p || op_count == 4) {
+        } else if (!response.retry_p && op_count == 4) {
           addr = 324; // Fixed address
           op_count = 0;
-          response = cache->store(addr, 0, cur_cycle, response.retry_p);
         } 
+        response = cache->store(addr, 0, cur_cycle, response.retry_p);
         if (args.verbose) {
           printf("Processor %d: Storing to address %d, data: %d\n", proc, addr, cur_cycle);
         }

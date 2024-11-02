@@ -19,7 +19,7 @@ iu_t::iu_t(int __node) {
   for (int i = 0; i < MEM_SIZE; ++i)
     for (int j = 0; j < CACHE_LINE_SIZE; ++j) // CACHE_LINE_SIZE is the number of words in cacheline
       // initialize memory to 0
-      mem[i][j] = 0;
+      mem[i][j] = i*CACHE_LINE_SIZE+j;
 
   // initialize the directory memory to INVALID
   for (int i = 0; i < MEM_SIZE; ++i) {
@@ -146,7 +146,24 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
   //extra logic to process local writeback
   if(proc_cmd_writeback_p){
     if(gen_node(proc_cmd_writeback.addr) == node){ //local writeback 
-      copy_cache_line(mem[lcl], proc_cmd_writeback.data);//do local writeback, from cache to memory
+      //do local writeback, from cache to memory
+      // when writeback, you should also update the dir_mem
+      if (proc_cmd_writeback.permit_tag == EXCLUSIVE){
+        dir_mem[lcl][1] = INVALID;
+        dir_mem[lcl][0] = 0;
+      }
+      else if (proc_cmd_writeback.permit_tag == MODIFIED){
+        dir_mem[lcl][1] = INVALID;
+        dir_mem[lcl][0] = 0;
+        copy_cache_line(mem[lcl], proc_cmd_writeback.data);
+      } 
+      else if (proc_cmd_writeback.permit_tag == SHARED){
+        dir_mem[lcl][0] &= ~(1 << node);
+        if (dir_mem[lcl][0] == 0){
+          dir_mem[lcl][1] = INVALID;
+        }
+      }
+      
       proc_cmd_writeback_p = false;//clear proc_cmd_writeback_p    
     }
     else{//network writeback, put into net request (PRI1)
@@ -367,6 +384,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         ERROR("Processor should have issued only Read miss or RWITM");
     }
   }
+  ERROR("Should not reach here..");
   return(true); // need to return something by default
 }
 
@@ -375,10 +393,6 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
 bool iu_t::process_net_request(net_cmd_t net_cmd) { 
   
   proc_cmd_t pc = net_cmd.proc_cmd;
-  // ***** FYTD *****
-  // sanity check
-  if (gen_node(pc.addr) != node) 
-    ERROR("sent to wrong home site!"); 
 
   int lcl = gen_local_cache_line(pc.addr);
   int src = net_cmd.src;
@@ -390,6 +404,8 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
     //   ERROR("should not have gotten a PRI0 request in net request");
     
     case 1: 
+      if (gen_node(pc.addr) != node) 
+        ERROR("sent to wrong home site!"); 
       if (pc.busop == READ) { // READ means not a eviction, src node still have the data
         if (pc.permit_tag == EXCLUSIVE){ // the data maintains the same
           dir_mem[lcl][1] = SHARED;
@@ -529,6 +545,9 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
     
 
     case 3: // PRI3
+      // sanity check
+      if (gen_node(pc.addr) != node) 
+        ERROR("sent to wrong home site!"); 
       if (pc.busop == READ) {
         if (pc.permit_tag == SHARED) { //READ MISS
           if (dir_mem[lcl][1]==INVALID){
@@ -544,8 +563,11 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
             reply_p0.proc_cmd = temp;
             
             // try to send the request to the network
-            net->to_net(node, PRI0, reply_p0);
+            bool reply_p0_sent = net->to_net(node, PRI0, reply_p0);
+            if (!reply_p0_sent) {ERROR("PRI0 request should not fail");}
+
             pri2_sent_p = false;
+            invalid_send_init = false; // not nessary, but for safety
             return false;
           }
           else if(dir_mem[lcl][1]==SHARED){
@@ -564,7 +586,10 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
             copy_cache_line(temp.data, mem[lcl]);
             reply_p0.proc_cmd = temp;
 
-            net->to_net(node, PRI0, reply_p0);
+            bool reply_p0_sent = net->to_net(node, PRI0, reply_p0);
+            if (!reply_p0_sent) {ERROR("PRI0 request should not fail");}
+              
+            invalid_send_init = false;
             pri2_sent_p = false;
             return (false);
           }
@@ -575,18 +600,6 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
 
             for(int i=0; i<32; i++){
               if(dir_mem[lcl][0] == (1 << i)){
-                // if (i == node){
-                //   // local node is homesite
-                //   // need to check if the data is modified locally in cache
-                //   response_t snoop_p = (cache->snoop(temp)); // temp is the PRIO2 request sent, but do it locally, update the cache state
-                //   // this would return some data in 
-                //   if (proc_cmd_writeback_p_PRI2){ // there are some data to writeback in local memory
-                //     copy_cache_line(mem[lcl], proc_cmd_writeback_PRI2.data); // writeback the data to memory
-                //     proc_cmd_writeback_p_PRI2 = false; // clear the writeback buffer
-                //     dir_mem[lcl][1] = SHARED; // update the state of the cache line
-                //     dir_mem[lcl][0] = 1 << node; // update the ownership of the cache line
-                //   }
-                // }
                 net_cmd.dest = i;
                 break;
               }
@@ -604,7 +617,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
           }
 
         }
-        else if (pc.permit_tag == MODIFIED) { //RWITM
+        else if (pc.permit_tag == MODIFIED) { //RWITM, PRI3
           if(dir_mem[lcl][1]==INVALID){ //Change homesite to exclusive and reply requesting node with data
             invalid_send_init = 0;
             dir_mem[lcl][1] = EXCLUSIVE;
@@ -620,14 +633,15 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
             reply_p0.src  = node;
             reply_p0.proc_cmd = temp;
             
-            net->to_net(node, PRI0, reply_p0);
+            bool reply_p0_sent = net->to_net(node, PRI0, reply_p0);
+            if (!reply_p0_sent) {ERROR("PRI0 request should not fail");}
             pri2_sent_p = false;
             return(false);
           }
           else if(dir_mem[lcl][1]==SHARED){ //issue invalidation and wait
             if(!invalid_send_init){
               invalid_send_count = dir_mem[lcl][0];
-              invalid_send_init = 1;
+              invalid_send_init = true;
             }
 
             if (!pri2_sent_p){
@@ -648,6 +662,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
                 pri2_sent_p = true;
               }
             }
+            return true;
           }
           else if(dir_mem[lcl][1]==EXCLUSIVE){ //issue invalidation and wait
             net_cmd_t invalidate_cmd;
@@ -666,7 +681,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
                 pri2_sent_p = true;
               }
             }
-
+            return true;
           }
         }
         else {
@@ -678,7 +693,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
       }
 
     default:
-    ERROR("Wrong bus tag for process_net_request to handle");
+      ERROR("Wrong bus tag for process_net_request to handle");
     return(true); // need to return something
   }
 }
@@ -686,6 +701,9 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
 
 bool iu_t::process_net_reply(net_cmd_t net_cmd) {    // this is a reply from the network that set proc_cmd_p back to false
   proc_cmd_t pc = net_cmd.proc_cmd;
+  pri3_sent_p = false;
+  pri2_sent_p = false;
+  invalid_send_init = false; // not nessary, but for safety
   proc_cmd_p = false; // clear out request that this reply is a reply to
   if (pc.tag == 0) {
     if (pc.busop == READ) {
@@ -694,8 +712,10 @@ bool iu_t::process_net_reply(net_cmd_t net_cmd) {    // this is a reply from the
     }
   }
   else {
+    ERROR("should not return true for process_net_reply");
     return true;
   }
+  return true;
 }
 
 void iu_t::print_stats() {
