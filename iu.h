@@ -32,12 +32,12 @@ class iu_t {
   network_t *net;
 
   bool proc_cmd_p;
-  proc_cmd_t proc_cmd;
+  proc_cmd_t proc_cmd; //
 
   bool proc_cmd_writeback_p;
   proc_cmd_t proc_cmd_writeback;
 
-  bool proc_cmd_writeback_p_PRI2 = false;
+  bool proc_cmd_writeback_p_PRI2;
   proc_cmd_t proc_cmd_writeback_PRI2;
 
   bool pri3_p;
@@ -49,13 +49,13 @@ class iu_t {
   bool pri0_p;
   net_cmd_t pri0;
 
-  bool pri0_sent_p = false; // true means send.
-  bool pri1_sent_p = false; // true means send.
-  bool pri2_sent_p = false; // true means send. 
-  bool pri3_sent_p = false; // true means send.
+  bool pri0_sent_p; // true means send.
+  bool pri1_sent_p; // true means send.
+  bool pri2_sent_p; // true means send. 
+  bool pri3_sent_p; // true means send.
 
-  int invalid_send_count = 0;
-  int invalid_send_init = 0;
+  int invalid_send_count;
+  int invalid_send_init;
 
   // processor side
   bool process_proc_request(proc_cmd_t proc_cmd);

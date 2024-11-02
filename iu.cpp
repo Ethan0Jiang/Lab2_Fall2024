@@ -27,9 +27,17 @@ iu_t::iu_t(int __node) {
     dir_mem[i][1] = INVALID;
   }
 
+  pri0_sent_p = false; // true means send.
+  pri1_sent_p = false; // true means send.
+  pri2_sent_p = false; // true means send. 
+  pri3_sent_p = false; // true means send.
+
+  invalid_send_count = 0;
+  invalid_send_init = 0;
 
   proc_cmd_p = false;  // default is false
   proc_cmd_writeback_p = false; // this is a writeback request from the processor
+  proc_cmd_writeback_p_PRI2 = false;
   pri3_p = false; 
   pri2_p = false;
   pri1_p = false;
@@ -453,7 +461,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
           // EXCLUSIVE is the permit_tag from the homesite, we change it to SHARED if snooped in cache
           // Do nothing if it is INVALID in cache
           if(!proc_cmd_writeback_p_PRI2)
-            response_t YOYOYO = cache->snoop(pc);
+            response_t YOYOYOJOEMAMAohioSKIBIDIRIZZLER = cache->snoop(pc);
 
           if(proc_cmd_writeback_p_PRI2){
             net_cmd_t reply_p1;
@@ -678,25 +686,16 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
 
 bool iu_t::process_net_reply(net_cmd_t net_cmd) {    // this is a reply from the network that set proc_cmd_p back to false
   proc_cmd_t pc = net_cmd.proc_cmd;
-
-  // ***** FYTD *****
-
   proc_cmd_p = false; // clear out request that this reply is a reply to
-    
-    switch(pc.busop) {
-    case READ: // assume local
+  if (pc.tag == 0) {
+    if (pc.busop == READ) {
       cache->reply(pc);
       return(false);
-        
-    case WRITEBACK:
-    case INVALIDATE:
-      ERROR("should not have gotten a reply back from a write or an invalidate, since we are incoherent");
-      return(false);  // need to return something for now
-    default:
-      ERROR("should not reach default");
-      return(false);  // need to return something
     }
-
+  }
+  else {
+    return true;
+  }
 }
 
 void iu_t::print_stats() {
