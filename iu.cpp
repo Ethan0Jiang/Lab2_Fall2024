@@ -384,10 +384,14 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
     case 1: 
       if (pc.busop == READ) { // READ means not a eviction, src node still have the data
         if (pc.permit_tag == EXCLUSIVE){ // the data maintains the same
-
+          dir_mem[lcl][1] = SHARED;
+          dir_mem[lcl][0] = dir_mem[lcl][0]; //don't change
+          return false;
         }
         else if (pc.permit_tag == MODIFIED){
-
+          dir_mem[lcl][1] = SHARED;
+          copy_cache_line(mem[lcl], pc.data);
+          return false;
         }
         else {
           ERROR("For PRI1, READ's permit_tag should be EXCLUSIVE or MODIFIED");
@@ -395,13 +399,22 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
       }
       else if (pc.busop == WRITEBACK) { // WRITEBACK means regular eviction, other src node do not have data anymore
         if (pc.permit_tag == EXCLUSIVE){
-
+          dir_mem[lcl][1] = INVALID;
+          dir_mem[lcl][0] = 0;
+          return false;
         }
         else if (pc.permit_tag == MODIFIED){
-
+          dir_mem[lcl][1] = INVALID;
+          dir_mem[lcl][0] = 0;
+          copy_cache_line(mem[lcl], pc.data);
+          return false;
         } 
         else if (pc.permit_tag == SHARED){
-
+          dir_mem[lcl][0] &= ~(1 << src);
+          if (dir_mem[lcl][0] == 0){
+            dir_mem[lcl][1] = INVALID;
+          }
+          return false;
         }
         else {
           ERROR("For PRI1, WRITEBACK's permit_tag should be EXCLUSIVE or MODIFIED or SHARED");
@@ -410,13 +423,22 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
       } 
       else if (pc.busop == INVALIDATE) { // INVALIDATE means coherent eviction, other src node do not have data anymore
         if (pc.permit_tag == EXCLUSIVE){
-
+          dir_mem[lcl][1] = INVALID;
+          dir_mem[lcl][0] = 0;
+          return false;
         }
         else if (pc.permit_tag == MODIFIED){
-
+          dir_mem[lcl][1] = INVALID;
+          dir_mem[lcl][0] = 0;
+          copy_cache_line(mem[lcl], pc.data);
+          return false;
         } 
         else if (pc.permit_tag == SHARED){
-
+          dir_mem[lcl][0] &= ~(1 << src);
+          if (dir_mem[lcl][0] == 0){
+            dir_mem[lcl][1] = INVALID;
+          }
+          return false;
         }
         else {
           ERROR("For PRI1, INVALIDATE's permit_tag should be EXCLUSIVE or MODIFIED or SHARED");
