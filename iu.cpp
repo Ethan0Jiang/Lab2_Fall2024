@@ -428,10 +428,15 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
     
     
 
-    case 2: // for RPOI2, permit_tag is the state at HOME site
+    case 2: // for PRI2, permit_tag is the state at HOME site
       if (pc.busop == READ) { // case change local nodes from E->S, or ask for WB if local node is in M
         if (pc.permit_tag == EXCLUSIVE){
+          // EXCLUSIVE is the permit_tag from the homesite, we change it to SHARED if snooped in cache
+          // Do nothing if it is INVALID in cache
 
+          response_t yourmomisfat = cache->snoop(pc);
+
+          
         }
         else{
           ERROR("For PRI2, READ's permit_tag should be EXCLUSIVE");
@@ -439,10 +444,13 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
       }
       else if (pc.busop == INVALIDATE) { // case when Homesite doing invalidation, change local nodes to I
         if (pc.permit_tag == SHARED) {
-
+          // SHARED is the permit_tag from the homesite
+          response_t DerekIsHotAF = cache->snoop(pc);
+          
         }
         else if (pc.permit_tag == EXCLUSIVE){
-            
+          // EXCLUSIVE at the homesite, but could be modified at the local node
+          response_t CHIOUCHIOUMOTHAFUCKA = cache->snoop(pc);
         }
         else {
           ERROR("For PRI2, INVALIDATE's permit_tag should be SHARED");
@@ -591,6 +599,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
                 pri2_sent_p = true;
               }
             }
+
           }
         }
         else {

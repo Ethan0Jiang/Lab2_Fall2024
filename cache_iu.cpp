@@ -69,12 +69,88 @@ response_t cache_t::snoop(proc_cmd_t proc_cmd) {
       //if exclusive, update to shared then acknowledge homesite that he is clean
       //if modified, update to shared then acknowledge homesite with writeback data
       //if invalid, an eviction is in-flight, which homesite will update
+      if (proc_cmd.permit_tag == EXCLUSIVE){
+        cache_access_response_t car;
+        if(cache_access(proc_cmd.addr, EXCLUSIVE, &car)){ //if return true, hit and permission is at least EXCLUSIVE
+          //update state to shared
+          if(car.permit_tag == EXCLUSIVE){ //line in cache is exclusive state
+            //update local cache state to shared
+            //generate PRI1 request to update homesite directory            
+            tags[car.set][car.way].permit_tag = SHARED; //update to shared state
+            proc_cmd_t wb;
+            wb.busop = proc_cmd.busop; //READ
+            wb.permit_tag = EXCLUSIVE;
+            wb.tag = 1;
+            wb.addr = proc_cmd.addr;
+            if (iu->from_proc_writeback_PRI2(wb)) {
+              ERROR("The local WB buffer should be empty from proc_cmd call");  // retry's WB has the highest priority, but snoop no need to to has the highest priority
+            }
+          }
+          else if(car.permit_tag == MODIFIED){ //line in cache is modified state
+            //update local cache state to shared 
+            //generate PRI1 request to clean homesite memory and update homesite directory            
+            tags[car.set][car.way].permit_tag = SHARED; //update to shared state
+            proc_cmd_t wb;
+            wb.busop = proc_cmd.busop; //READ
+            wb.permit_tag = MODIFIED;
+            wb.tag = 1;
+            wb.addr = proc_cmd.addr;
+            copy_cache_line(wb.data, tags[car.set][car.way].data); //writeback data
+            if (iu->from_proc_writeback_PRI2(wb)) {
+              ERROR("The local WB buffer should be empty from proc_cmd call");  // retry's WB has the highest priority, but snoop no need to to has the highest priority
+            }
+          }
+        }
+        
+      }
     }
     else if(proc_cmd.busop == INVALIDATE){//invalidation
       if(proc_cmd.permit_tag == SHARED){  //homesite says shared
         //Check if the line is in INVALID state in cache or SHARED state in cache
         //if cache is invalid, do nothing bc an eviction previously occurred (if we do silent eviction of shared, need to send acknowledge)
         //if cache is SHARED, evict and generate acknowledgment 
+      
+        
+        cache_access_response_t car;
+        if (cache_access(proc_cmd.addr, proc_cmd.permit_tag, &car)) {
+          // return true if data found and <= than SHARED
+          
+          // sanity check, the data permit tag should be SHARED
+          if (tags[car.set][car.way].permit_tag != SHARED) {
+            ERROR("The permit tag should be SHARED");
+          }
+
+          proc_cmd_t wb;
+          wb.busop = proc_cmd.busop;
+          wb.tag = 1;
+          wb.permit_tag = SHARED;
+          wb.addr = proc_cmd.addr;
+          if (iu->from_proc_writeback_PRI2(wb)) {
+            ERROR("The local WB buffer should be empty from proc_cmd call");  // retry's WB has the highest priority, but snoop no need to to has the highest priority
+          }
+          // change the permit tag to INVALID in cache
+          tags[car.set][car.way].permit_tag = INVALID;
+        }
+        
+        
+      }
+      if(proc_cmd.permit_tag == EXCLUSIVE){ //homesite says EXCLUSIVE
+        cache_access_response_t car;
+        if (cache_access(proc_cmd.addr, proc_cmd.permit_tag, &car)) {
+          proc_cmd_t wb;      
+          wb.busop = proc_cmd.busop;
+          wb.tag = 1;
+          wb.permit_tag = car.permit_tag;
+          wb.addr = proc_cmd.addr;
+          if(car.permit_tag == MODIFIED){
+            copy_cache_line(wb.data, tags[car.set][car.way].data); //writeback data
+          }
+          if (iu->from_proc_writeback_PRI2(wb)) {
+            ERROR("The local WB buffer should be empty from proc_cmd call");  // retry's WB has the highest priority, but snoop no need to to has the highest priority
+          }
+          // change the permit tag to INVALID in cache
+          tags[car.set][car.way].permit_tag = INVALID;
+        }
       }
     }
   }
