@@ -37,6 +37,9 @@ class iu_t {
   bool proc_cmd_writeback_p;
   proc_cmd_t proc_cmd_writeback;
 
+  bool proc_cmd_writeback_p_PRI2;
+  proc_cmd_t proc_cmd_writeback_PRI2;
+
   bool pri3_p;
   net_cmd_t pri3;
   bool pri2_p;
@@ -52,7 +55,7 @@ class iu_t {
   bool pri3_sent_p = false; // true means send.
 
   int invalid_send_count = 0;
-
+  int invalid_send_init = 0;
 
   // processor side
   bool process_proc_request(proc_cmd_t proc_cmd);
@@ -72,6 +75,7 @@ class iu_t {
   // processor side
   bool from_proc(proc_cmd_t pc);
   bool from_proc_writeback(proc_cmd_t pc);
+  bool from_proc_writeback_PRI2(proc_cmd_t pc);
   
   // network side
   bool from_net(net_cmd_t nc);

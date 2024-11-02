@@ -64,7 +64,19 @@ response_t cache_t::snoop(proc_cmd_t proc_cmd) {
     }
   }
   else if(proc_cmd.tag == 2){ //Secondary request for invalidation or confirmation
-
+    if(proc_cmd.busop == READ){ //confirmation, permit_tag should be EXCLUSIVE
+      //cache access to check state of this line in the cache. Should be either exclusive, modified, or invalid
+      //if exclusive, update to shared then acknowledge homesite that he is clean
+      //if modified, update to shared then acknowledge homesite with writeback data
+      //if invalid, an eviction is in-flight, which homesite will update
+    }
+    else if(proc_cmd.busop == INVALIDATE){//invalidation
+      if(proc_cmd.permit_tag == SHARED){  //homesite says shared
+        //Check if the line is in INVALID state in cache or SHARED state in cache
+        //if cache is invalid, do nothing bc an eviction previously occurred (if we do silent eviction of shared, need to send acknowledge)
+        //if cache is SHARED, evict and generate acknowledgment 
+      }
+    }
   }
   //if no open spot, try to do LRU eviction without updating the LRU bits?
 

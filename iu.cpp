@@ -44,35 +44,42 @@ void iu_t::bind(cache_t *c, network_t *n) {
 }
 
 // this method advances the IU by one cycle
-void iu_t::advance_one_cycle() {
-  
-  if (!pri0_p) { // true if there is no request on hold, create a pri0
+void iu_t::advance_one_cycle() { //maybe add writeback cache if time
+
+  //Dequeuing into buffer can happen concurrently
+  if(!pri0_p && net->from_net_p(node, PRI0)){ //buffer free, something in network queue
     pri0_p = true;
-    pri0 = net->from_net(node, PRI0); // get the request from the network
-  } else if (pri0_p) { // true if there is a request on hold
+    pri0 = net->from_net(node, PRI0);
+  }
+  
+  if(!pri1_p && net->from_net_p(node, PRI1)){
+    pri1_p = true;
+    pri1 = net->from_net(node, PRI1);
+  }
+  
+  if(!pri2_p && net->from_net_p(node, PRI2)){
+    pri2_p = true;
+    pri2 = net->from_net(node, PRI2);
+  }
+
+  if(!pri3_p && net->from_net_p(node, PRI3)){
+    pri3_p = true;
+    pri3 = net->from_net(node, PRI3);
+  }
+
+  //Process buffers
+  if (pri0_p) { // true if there is a request on hold
     if (!process_net_reply(pri0)) {
       pri0_p = false;
     }
-
-  } else if (!pri1_p) { // true if there is no request on hold, create a pri1
-    pri1_p = true;
-    pri1 = net->from_net(node, PRI1); // get the request from the network
   } else if (pri1_p) { // true if there is a request on hold
     if (!process_net_request(pri1)) {
       pri1_p = false;
     }
-
-  } else if (!pri2_p) {
-    pri2_p = true;
-    pri2 = net->from_net(node, PRI2);
   } else if (pri2_p) {
     if (!process_net_request(pri2)) {
       pri2_p = false;
     }
-
-  } else if (!pri3_p) {
-    pri3_p = true;
-    pri3 = net->from_net(node, PRI3);
   } else if (pri3_p) {
     if (!process_net_request(pri3)) {
       pri3_p = false;
@@ -105,6 +112,16 @@ bool iu_t::from_proc_writeback(proc_cmd_t pc) {  // pc means processor command, 
   if (!proc_cmd_writeback_p) { // checks if there is a writeback request from the processor to the IU
     proc_cmd_writeback_p = true;
     proc_cmd_writeback = pc;
+    return(false);
+  } else {
+    return(true);
+  }
+}
+
+bool iu_t::from_proc_writeback_PRI2(proc_cmd_t pc) { 
+  if (!proc_cmd_writeback_p_PRI2) {
+    proc_cmd_writeback_p_PRI2 = true;
+    proc_cmd_writeback_PRI2 = pc;
     return(false);
   } else {
     return(true);
@@ -161,7 +178,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         dir_mem[lcl][0] = 1 << node; // 1 << 0 is 00000001, 1 << 1 is 00000010, 1 << 2 is 00000100, 1 << 3 is 00001000
         
         proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, EXCLUSIVE}; // set requesting node cache to exclusive
-        copy_cache_line(pc.data, mem[lcl]);
+        copy_cache_line(temp.data, mem[lcl]);
         cache->reply(temp);
         return(false);
       }
@@ -169,7 +186,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         dir_mem[lcl][0] |= 1 << node;
         // In PROI0 commands, permit_tag means the state that remote node cache need to go to
         proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, SHARED}; // set requesting node cache to shared
-        copy_cache_line(pc.data, mem[lcl]);
+        copy_cache_line(temp.data, mem[lcl]);
         cache->reply(temp);
         return(false);
       }
@@ -181,7 +198,12 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         // in PROI2 commands, permit_tag means the state at the HOME site
         proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 2, EXCLUSIVE};//READ busop, requesting address, priority 2, data is not needed
         net_cmd_t net_cmd;
-        net_cmd.dest = gen_node(pc.addr);
+        for(int i=0; i<32; i++){
+          if(dir_mem[lcl][0] == (1 << i)){
+            net_cmd.dest=i;
+            break;
+          }
+        }
         net_cmd.src  = node;
         net_cmd.proc_cmd = temp;
 
@@ -215,21 +237,23 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         dir_mem[lcl][0] = 1 << node;
         
         proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, MODIFIED}; //READ, addr, 0, MODIFIED
-        copy_cache_line(pc.data, mem[lcl]);
+        copy_cache_line(temp.data, mem[lcl]);
         cache->reply(temp);
         return(false);
       }
       else if (dir_mem[lcl][1] == SHARED){ //generate invalidations, multicast or broadcast
         //implement invalidation issuing retry buffer
         invalid_send_count = dir_mem[lcl][0];
+        invalid_send_init = 1;
 
 
         /// !!create a function for this part!!
         for(int i = 0; i < 32; i++){
           // for each 32 node, we generate a invalidation request to that node
           // check the bit on invalid_send_count, if it is 1, we generate a invalidation request (PRIO2)
-          if(invalid_send_count & 1 << i){
-            proc_cmd_t temp = (proc_cmd_t){INVALIDATE, pc.addr, 2, SHARED}; // for RPOI2, permit_tag is the state at HOME site
+          if(invalid_send_count & (1 << i)){
+            // TODO: handle local case if homesite is remote node
+            proc_cmd_t temp = (proc_cmd_t){INVALIDATE, pc.addr, 2, SHARED}; // for PROI2, permit_tag is the state at HOME site
             net_cmd_t net_cmd;
             net_cmd.dest = i;
             net_cmd.src  = node;
@@ -237,7 +261,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
             // IMP: the first argument should be the src node!
             if(net->to_net(node, PRI2, net_cmd)){
               invalid_send_count &= ~(1 << i); // clear the bit 
-            }
+            }        
           }
         } //this will never be retried in this branch, but may be retried in the proc_net_request(PRI3) branch.
 
@@ -350,7 +374,7 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
 
   int lcl = gen_local_cache_line(pc.addr);
   int src = net_cmd.src;
-  int dest = net_cmd.dest;
+  int dest = net_cmd.dest; //dest = node
 
   switch(pc.tag) {
 
@@ -431,20 +455,150 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
 
     case 3: // PRI3
       if (pc.busop == READ) {
-        if (pc.permit_tag == SHARED) { 
+        if (pc.permit_tag == SHARED) { //READ MISS
+          if (dir_mem[lcl][1]==INVALID){
+            dir_mem[lcl][1] = EXCLUSIVE;
+            dir_mem[lcl][0] = 1 << src;
 
+            // generating a PRI0 request to the src node, with the updated permit_tag and data
+            net_cmd_t reply_p0;
+            reply_p0.dest = src;
+            reply_p0.src = node;
+            proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, EXCLUSIVE};
+            copy_cache_line(temp.data, mem[lcl]);
+            reply_p0.proc_cmd = temp;
+            
+            // try to send the request to the network
+            net->to_net(node, PRI0, reply_p0);
+            pri2_sent_p = false;
+            return false;
+          }
+          else if(dir_mem[lcl][1]==SHARED){
+            //TODO: need to check if requesting node = homesite directory exclusive case
+            //      and correctly manage buffer clears and local READ miss reply
+            //      potential optimization. For now send request to yourself
+
+            // maintains at SHARED
+            dir_mem[lcl][0] |= 1 << src;
+
+            // generate a PRI0 net request to src node with updated permit_tag and data
+            net_cmd_t reply_p0;
+            reply_p0.dest = src;
+            reply_p0.src = node;
+            proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 0, SHARED};  // node in SHARED state
+            copy_cache_line(temp.data, mem[lcl]);
+            reply_p0.proc_cmd = temp;
+
+            net->to_net(node, PRI0, reply_p0);
+            pri2_sent_p = false;
+            return (false);
+          }
+          else if(dir_mem[lcl][1]==EXCLUSIVE){ // check if the data been modified, then need update dir_mem
+            
+            proc_cmd_t temp = (proc_cmd_t){pc.busop, pc.addr, 2, EXCLUSIVE}; // for PRI2, permit_tag is the state at HOME site
+            net_cmd_t net_cmd;
+
+            for(int i=0; i<32; i++){
+              if(dir_mem[lcl][0] == (1 << i)){
+                // if (i == node){
+                //   // local node is homesite
+                //   // need to check if the data is modified locally in cache
+                //   response_t snoop_p = (cache->snoop(temp)); // temp is the PRIO2 request sent, but do it locally, update the cache state
+                //   // this would return some data in 
+                //   if (proc_cmd_writeback_p_PRI2){ // there are some data to writeback in local memory
+                //     copy_cache_line(mem[lcl], proc_cmd_writeback_PRI2.data); // writeback the data to memory
+                //     proc_cmd_writeback_p_PRI2 = false; // clear the writeback buffer
+                //     dir_mem[lcl][1] = SHARED; // update the state of the cache line
+                //     dir_mem[lcl][0] = 1 << node; // update the ownership of the cache line
+                //   }
+                // }
+                net_cmd.dest = i;
+                break;
+              }
+            }
+            
+            net_cmd.src = node;
+            net_cmd.proc_cmd = temp;
+
+            if (!pri2_sent_p){
+              if(net->to_net(node, PRI2, net_cmd)){
+                pri2_sent_p = true;
+              }
+            }
+            return true;
+          }
 
         }
-        else if (pc.permit_tag == MODIFIED) {
+        else if (pc.permit_tag == MODIFIED) { //RWITM
+          if(dir_mem[lcl][1]==INVALID){ //Change homesite to exclusive and reply requesting node with data
+            invalid_send_init = 0;
+            dir_mem[lcl][1] = EXCLUSIVE;
+            dir_mem[lcl][0] = 1 << src;
 
+            //Need to check if requesting node is same as homesite, and perform reply.
 
+            // generate a PRI0 request to src node with updated permit_tag and data
+            net_cmd_t reply_p0;
+            proc_cmd_t temp = (proc_cmd_t){READ, pc.addr, 0, MODIFIED};
+            copy_cache_line(temp.data, mem[lcl]);
+            reply_p0.dest = src;
+            reply_p0.src  = node;
+            reply_p0.proc_cmd = temp;
+            
+            net->to_net(node, PRI0, reply_p0);
+            pri2_sent_p = false;
+            return(false);
+          }
+          else if(dir_mem[lcl][1]==SHARED){ //issue invalidation and wait
+            if(!invalid_send_init){
+              invalid_send_count = dir_mem[lcl][0];
+              invalid_send_init = 1;
+            }
+
+            if (!pri2_sent_p){
+              for(int i = 0; i<32; i++){
+                // TODO: home site is remote node
+                if(invalid_send_count & (1 << i)){
+                  proc_cmd_t temp = (proc_cmd_t){INVALIDATE, pc.addr, 2, SHARED};  // permit tag is the home site state for PRI2         
+                  net_cmd_t net_cmd;
+                  net_cmd.dest = i;
+                  net_cmd.src  = node;
+                  net_cmd.proc_cmd = temp;
+                  if(net->to_net(node, PRI2, net_cmd)){
+                    invalid_send_count &= ~(1 << i);
+                  }
+                }
+              }
+              if (invalid_send_count == 0){
+                pri2_sent_p = true;
+              }
+            }
+          }
+          else if(dir_mem[lcl][1]==EXCLUSIVE){ //issue invalidation and wait
+            net_cmd_t invalidate_cmd;
+            for(int i=0; i<32; i++){
+              if(dir_mem[lcl][0] == (1<<i)){
+                invalidate_cmd.dest = i;
+                break;
+                }
+            }
+            invalidate_cmd.src = node;
+            proc_cmd_t temp = (proc_cmd_t){INVALIDATE, pc.addr, 2, EXCLUSIVE};
+            invalidate_cmd.proc_cmd = temp;
+
+            if(!pri2_sent_p){
+              if(net->to_net(node, PRI2, invalidate_cmd)){
+                pri2_sent_p = true;
+              }
+            }
+          }
         }
         else {
-          ERROR("should not have gotten a PRI3 request busop other than SHARED or MODIFIED");
+          ERROR("should not have gotten a PRI3 request permit_tag other than SHARED or MODIFIED");        
         }  
-      }
+      } // if (busop==READ)
       else {
-        ERROR("should not have gotten a PRI3 request for anything other than a READ");
+        ERROR("should not have gotten a PRI3 request busop for anything other than a READ");
       }
 
     default:
