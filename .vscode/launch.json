@@ -7,7 +7,8 @@
         "request": "launch",
         "program": "${workspaceFolder}/sim",  // Path to your compiled executable
         // "args": ["1", "10000", "0", "1"],
-        "args": ["4", "10000", "2", "1"],     // 4 cores, 10000 cycles, test case 2, verbose   
+        "args": ["4", "1000000", "0", "1"],
+        // "args": ["4", "10000", "2", "1"],     // 4 cores, 10000 cycles, test case 2, verbose   
         "stopAtEntry": false,                 // Set to true if you want to stop at the program entry
         "cwd": "${workspaceFolder}",          // Set to the working directory of your program
         "environment": [],

@@ -42,7 +42,8 @@ void init_test() {
   switch(args.test) {
   case 0:
     // test_args.addr_range = 8192;  // addr range is # cache lines * words per cache line * number of processors = 1024* 8 * 1  = 8192 in case 0
-    test_args.addr_range = 512;
+    // test_args.addr_range = 512;  // if set at 512 with 4 cores, only core 0 and 1 will hit local
+    test_args.addr_range = 512 * 4; 
     break;
 
   case 1: // 4 cores test

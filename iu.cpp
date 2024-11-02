@@ -333,6 +333,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         pri3.dest = node;
         pri3.src  = node;
         pri3.proc_cmd = temp_P3;
+        return true;
       }
       else{
         ERROR("Modified or non-ESI state in directory entry is not allowed.");
