@@ -145,22 +145,23 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
   response_t snoop_p = (cache->snoop(pc)); // snoop the data in the cache, the return here not matter
   //extra logic to process local writeback
   if(proc_cmd_writeback_p){
+    int wb_lcl = gen_local_cache_line(proc_cmd_writeback.addr);
     if(gen_node(proc_cmd_writeback.addr) == node){ //local writeback 
       //do local writeback, from cache to memory
       // when writeback, you should also update the dir_mem
       if (proc_cmd_writeback.permit_tag == EXCLUSIVE){
-        dir_mem[lcl][1] = INVALID;
-        dir_mem[lcl][0] = 0;
+        dir_mem[wb_lcl][1] = INVALID;
+        dir_mem[wb_lcl][0] = 0;
       }
       else if (proc_cmd_writeback.permit_tag == MODIFIED){
-        dir_mem[lcl][1] = INVALID;
-        dir_mem[lcl][0] = 0;
+        dir_mem[wb_lcl][1] = INVALID;
+        dir_mem[wb_lcl][0] = 0;
         copy_cache_line(mem[lcl], proc_cmd_writeback.data);
       } 
       else if (proc_cmd_writeback.permit_tag == SHARED){
-        dir_mem[lcl][0] &= ~(1 << node);
-        if (dir_mem[lcl][0] == 0){
-          dir_mem[lcl][1] = INVALID;
+        dir_mem[wb_lcl][0] &= ~(1 << node);
+        if (dir_mem[wb_lcl][0] == 0){
+          dir_mem[wb_lcl][1] = INVALID;
         }
       }
       
