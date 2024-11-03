@@ -10,8 +10,12 @@
 class proc_t {
   int proc;
   response_t response;
+  bool store_done = 0;
+  bool load_done = 0;
 
   address_t addr;
+  address_t addr_rd;
+  address_t addr_wr;
   bool ld_p;
 
   cache_t *cache;
