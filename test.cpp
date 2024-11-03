@@ -21,6 +21,9 @@ void proc_t::init() {
   ld_p = false;
   store_done = false;
   load_done = false;
+  final_load_done = false;
+  initial_load_done = false;
+
 }
 
 void proc_t::bind(cache_t *c) {
@@ -59,17 +62,17 @@ void init_test() {
 
   case 1: // 4 cores test
     // test_args.addr_range = 8192 * 4;
-    test_args.addr_range = 512*4;
+    test_args.addr_range = 256 * 4;
     break;
 
   case 2: // 4 cores test
     // test_args.addr_range = 8192 * 4;
-    test_args.addr_range = 512*4;
+    test_args.addr_range = 256 * 4;
     break;
 
   case 3: // multiple cores test
     // test_args.addr_range = 8192 * 4;
-    test_args.addr_range = 512*4;
+    test_args.addr_range = 256 * 4;
     // for(int i = 0; i<2; i++){
     //   for(int j = 0; j<args.num_procs; j++){
     //     if(i == 0){
@@ -168,23 +171,53 @@ void proc_t::advance_one_cycle() {
 
   // A random one but with some print statements (similar to case 0, but with a larger address space)
   case 1:
-    if (!response.retry_p) {
-      addr = random() % test_args.addr_range;
-      ld_p = ((random() % 2) == 0); 
-    }
-    if (ld_p) {
-      // Perform a load operation
-      response = cache->load(addr, 0, &data, response.retry_p);
-      if (args.verbose) {
-        printf("Processor %d: Loading from address %d, data: %d\n", proc, addr, data);
-      }
-    } else {
-      // Perform a store operation with current cycle as data
-      response = cache->store(addr, 0, cur_cycle, response.retry_p);
-      if (args.verbose) {
-        printf("Processor %d: Storing to address %d, data: %d\n", proc, addr, cur_cycle);
+    // At the beginning, every node except node 0 performs a load to addr 324.
+    // They keep attempting until they succeed. Node 0 does nothing initially.
+    if (proc > 0) {
+      if (!initial_load_done) {
+        addr = 324;
+        response = cache->load(addr, 0, &data, response.retry_p);
+        if (!response.retry_p) {
+          initial_load_done = true;
+          if (args.verbose) {
+            printf("Processor %d: Initial load from address %d, data: %d\n", proc, addr, data);
+          }
+        }
       }
     }
+
+    // At cycle 50, the node 0 performs a RWITM (store) to addr 324 with data 100.
+    if (proc == 0 && cur_cycle >= 50) {
+      if (!store_done) {
+        addr = 324;
+        response = cache->store(addr, 0, 100, response.retry_p);
+        if (!response.retry_p) {
+          store_done = true;
+          if (args.verbose) {
+            printf("Processor %d: Wrote data %d to address %d\n", proc, 100, addr);
+          }
+        }
+      }
+    }
+
+    // At cycle 100 and beyond, all nodes except node 0 perform a load to addr 324.
+    if (proc > 0 && cur_cycle >= 100) {
+      if (!final_load_done) {
+        addr = 324;
+        response = cache->load(addr, 0, &data, response.retry_p);
+        if (!response.retry_p) {
+          final_load_done = true;
+          if (args.verbose) {
+            printf("Processor %d: Final load from address %d, data: %d\n", proc, addr, data);
+            // the data must be 100
+            if (data != 100) {
+              ERROR("data is not 100");
+            }
+          }
+        }
+      }
+    }
+
     break;
 
 
@@ -203,11 +236,11 @@ void proc_t::advance_one_cycle() {
         int set_mask = (1 << lg_num_sets) - 1;
         int set = (addr >> set_shift) & set_mask;
         // Different addresses with same set, random address but with set bits replace back
-        if (!response.retry_p && op_count < args.num_procs-1) {
+        if (!response.retry_p && op_count < 4) {
           addr = (random() % test_args.addr_range) & ~(set_mask << set_shift); // Clear set bits
           addr |= (set << set_shift); // Apply the calculated set bits
           op_count++;
-        } else if (!response.retry_p && op_count == args.num_procs-1) {
+        } else if (!response.retry_p && op_count == 4) {
           addr = 324; // Fixed address
           op_count = 0;
         } 
@@ -226,7 +259,7 @@ void proc_t::advance_one_cycle() {
     // Store operation (store to the previous processor's home address)
       if (!store_done) { // Check if this proc hasn't completed store
         if (proc == 0) {
-          addr_wr = (args.num_procs * 256) - 1;  // Special case for proc 0
+          addr_wr = (args.num_procs * 256) - 1;  // Special case for proc 0, write to the last address
         } else {
           addr_wr = (proc * 256) - 1;
         }
@@ -241,7 +274,7 @@ void proc_t::advance_one_cycle() {
       }
 
       // Check if all stores are done before proceeding to load
-      if (store_done) { // All store operations are done
+      if (store_done & (cur_cycle>100)) { // All store operations are done
         // Load operation (load from the current processor's home address)
         if (!load_done) { // Check if this proc hasn't completed load
           addr_rd = ((proc+1) * 256) - 1;
@@ -250,25 +283,31 @@ void proc_t::advance_one_cycle() {
             load_done = 1; // Set the bit for this proc
             if (args.verbose) {
               printf("Processor %d: Loading from address %d, data: %d\n", proc, addr_rd, data);
+              // error if the data is not the next proc's ID
+              if (proc == (args.num_procs-1)){
+                if (data != 0) {
+                  ERROR("data is not the next proc's ID");
+                }
+              } else {
+                if (data != (proc+1)) {
+                  ERROR("data is not the next proc's ID");
+                }
+              }
             }
           }
         }
       }
 
-      if (load_done == 1) {
-        // Reset for the next cycle
-        load_done = 0;
-      } 
     break;
 
     case 4:
-      int cur_op = program[proc][pc[proc]].op;
-      address_t cur_addr=program[proc][pc[proc]].addr;
-      int cur_data=program[proc][pc[proc]].data;
+      // int cur_op = program[proc][pc[proc]].op;
+      // address_t cur_addr=program[proc][pc[proc]].addr;
+      // int cur_data=program[proc][pc[proc]].data;
       
-      if(cur_op){
-        response = cache->load(cur_addr, 0, &data, response.retry_p);
-      }
+      // if(cur_op){
+      //   response = cache->load(cur_addr, 0, &data, response.retry_p);
+      // }
     break;
 
   default:
