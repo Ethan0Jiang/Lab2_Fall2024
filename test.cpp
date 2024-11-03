@@ -23,6 +23,8 @@ void proc_t::init() {
   load_done = false;
   final_load_done = false;
   initial_load_done = false;
+  retry_count = 0;
+  max_retry_count = 0;
 
 }
 
@@ -57,12 +59,12 @@ void init_test() {
   case 0:
     // test_args.addr_range = 8192;  // addr range is # cache lines * words per cache line * number of processors = 1024* 8 * 1  = 8192 in case 0
     // test_args.addr_range = 512;  // if set at 512 with 4 cores, only core 0 and 1 will hit local
-    test_args.addr_range = 256 * 4; 
+    test_args.addr_range = 1024 * 32; 
     break;
 
   case 1: // 4 cores test
     // test_args.addr_range = 8192 * 4;
-    test_args.addr_range = 256 * 4;
+    test_args.addr_range = 256 * 32;
     break;
 
   case 2: // 4 cores test
@@ -163,10 +165,28 @@ void proc_t::advance_one_cycle() {
     if (!response.retry_p) {
       addr = random() % test_args.addr_range;
       ld_p = ((random() % 2) == 0);  // 50% chance of load
+      retry_count = 0;
+    } else {
+      retry_count++;
+      if (retry_count > max_retry_count) {
+        max_retry_count = retry_count;
+      }
     }
+    
     if (ld_p) response = cache->load(addr, 0, &data, response.retry_p);
     else      response = cache->store(addr, 0, cur_cycle, response.retry_p);
-    break;
+
+    if(cur_cycle == 9999){
+      printf("Processor %d: max retry count %d\n", proc, max_retry_count);
+      printf("Processor %d: retry count %d\n", proc, retry_count);
+    }
+
+    if (retry_count > 500) {  // our's only goes to ~200
+      printf("Processor %d: too many retries %d times, maybe deadlock\n", proc, retry_count);
+      printf(" the command is: ld_p ==%d, addr==%d, %d\n", ld_p, addr, response.retry_p);
+      ERROR("too many retries, maybe deadlock");
+    }
+  break;
 
 
   // A random one but with some print statements (similar to case 0, but with a larger address space)
@@ -218,40 +238,40 @@ void proc_t::advance_one_cycle() {
       }
     }
 
-    break;
+  break;
 
 
-    case 2:
-      if (proc < args.num_procs-1) { 
-        if (!response.retry_p) {
-          addr = 324; // Fixed address
-        }        
-        response = cache->load(addr, 0, &data, response.retry_p);
-        if (args.verbose) {
-          printf("Processor %d: Loading from address %d, data: %d\n", proc, addr, data);
-        }
-      } else if (proc == args.num_procs-1) { // Processor n stores to different addresses with same set, need eviction, also test snooping and writeback
-        int set_shift = LG_CACHE_LINE_SIZE;
-        int lg_num_sets = 3;
-        int set_mask = (1 << lg_num_sets) - 1;
-        int set = (addr >> set_shift) & set_mask;
-        // Different addresses with same set, random address but with set bits replace back
-        if (!response.retry_p && op_count < 4) {
-          addr = (random() % test_args.addr_range) & ~(set_mask << set_shift); // Clear set bits
-          addr |= (set << set_shift); // Apply the calculated set bits
-          op_count++;
-        } else if (!response.retry_p && op_count == 4) {
-          addr = 324; // Fixed address
-          op_count = 0;
-        } 
-        response = cache->store(addr, 0, cur_cycle, response.retry_p);
-        if (args.verbose) {
-          printf("Processor %d: Storing to address %d, data: %d\n", proc, addr, cur_cycle);
-        }
+  case 2:
+    if (proc < args.num_procs-1) { 
+      if (!response.retry_p) {
+        addr = 324; // Fixed address
+      }        
+      response = cache->load(addr, 0, &data, response.retry_p);
+      if (args.verbose) {
+        printf("Processor %d: Loading from address %d, data: %d\n", proc, addr, data);
       }
-      break;
+    } else if (proc == args.num_procs-1) { // Processor n stores to different addresses with same set, need eviction, also test snooping and writeback
+      int set_shift = LG_CACHE_LINE_SIZE;
+      int lg_num_sets = 3;
+      int set_mask = (1 << lg_num_sets) - 1;
+      int set = (addr >> set_shift) & set_mask;
+      // Different addresses with same set, random address but with set bits replace back
+      if (!response.retry_p && op_count < 4) {
+        addr = (random() % test_args.addr_range) & ~(set_mask << set_shift); // Clear set bits
+        addr |= (set << set_shift); // Apply the calculated set bits
+        op_count++;
+      } else if (!response.retry_p && op_count == 4) {
+        addr = 324; // Fixed address
+        op_count = 0;
+      } 
+      response = cache->store(addr, 0, cur_cycle, response.retry_p);
+      if (args.verbose) {
+        printf("Processor %d: Storing to address %d, data: %d\n", proc, addr, cur_cycle);
+      }
+    }
+  break;
 
-    case 3:
+  case 3:
     // based on the proc id, we will do a store first and followed by a load, 
     // each store is privous proc's homesite address, 
     // and the load is the current proc's homesite address.

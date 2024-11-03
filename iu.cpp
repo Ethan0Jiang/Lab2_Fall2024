@@ -251,7 +251,8 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         pri3.dest = node;
         pri3.src  = node;
         pri3.proc_cmd = temp_P3;
-        return true;
+        proc_cmd_p = false; // clear the proc_cmd
+        return false; // clear the proc_cmd
       }
       else{
         ERROR("Modified or non-ESI state in directory entry not allowed.");
@@ -303,8 +304,8 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         pri3.dest = node;
         pri3.src  = node;
         pri3.proc_cmd = temp_P3;
-
-        return true;
+        proc_cmd_p = false; // clear the proc_cmd
+        return false; 
       }
       else if (dir_mem[lcl][1] == EXCLUSIVE){ // do  E->I->E
         // generate an invalidation request to the owner of the data
@@ -333,7 +334,8 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
         pri3.dest = node;
         pri3.src  = node;
         pri3.proc_cmd = temp_P3;
-        return true;
+        proc_cmd_p = false; // clear the proc_cmd
+        return false;
       }
       else{
         ERROR("Modified or non-ESI state in directory entry is not allowed.");
@@ -342,14 +344,6 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
     else{
       ERROR("should not request READ to INVALID state");
     }
-    // case WRITEBACK: // maybe this case will not be used
-    //   copy_cache_line(mem[lcl], pc.data);
-    //   return(false);
-      
-    // case INVALIDATE:
-    //   // ***** FYTD *****
-    //   return(false);  // need to return something for now
-    //   break;
     } // end of switch
   } else { // global
     ++global_accesses;
@@ -368,7 +362,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
             net_cmd_P3.proc_cmd = temp_P3;
             pri3_sent_p = net->to_net(node, PRI3, net_cmd_P3);
           }
-          return(true);
+          return !pri3_sent_p;
         }
         else if (pc.permit_tag == MODIFIED){ //RWITM
           if (!pri3_sent_p){
@@ -380,7 +374,7 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
             net_cmd_P3.proc_cmd = temp_P3;
             pri3_sent_p = net->to_net(node, PRI3, net_cmd_P3);
           }
-          return(true);
+          return !pri3_sent_p;
         }
       default: 
         ERROR("Processor should have issued only Read miss or RWITM");

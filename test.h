@@ -18,6 +18,8 @@ class proc_t {
   address_t addr;
   address_t addr_rd;
   address_t addr_wr;
+  int retry_count;
+  int max_retry_count;
   bool ld_p;
 
   cache_t *cache;
