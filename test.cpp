@@ -52,7 +52,8 @@ typedef struct{
       } instruction_t;
 
 instruction_t program[32][50];
-int pc[32];
+int pc[32][2]; //pc[node][0] = actual PC, pc[node][1] = done flag
+int test_pass = 1; //0: wrong value fail, 1:pass, 2: didn't finish/potential deadlock
 
 void init_test() {
   switch(args.test) {
@@ -93,7 +94,8 @@ void init_test() {
 
   case 4: // PRI3 race condition test
     for(int i = 0; i<args.num_procs; i++){
-      pc[i] = 0;
+      pc[i][0] = 0;
+      pc[i][1] = 0;
     }
     test_args.addr_range = 512*4;
     for(int i = 0; i<50; i++){
@@ -107,11 +109,15 @@ void init_test() {
           }
         }
         if(i==1)
-          program[j][i] = (instruction_t){1, ((j+1)*256)-1, 0};
+          program[j][i] = (instruction_t){1, ((j+1)*256)-1, 0}; //after data is loaded, check if it is correct and modify test_pass
         if(i==2)
-          program[j][i] = (instruction_t){0, j, 69420+j}; //store 69420 to address j, node 0 is homesite.
-        if(i==3)
-          program[j][i] = (instruction_t){1, j, 0};
+          program[j][i] = (instruction_t){0, j, 69420+j}; //store 69420 to address j (my node), node 0 is homesite.
+        if(i==3){ //load from left neighbor in ring fashion (node 0 loads node num_procs-1)
+          if(j==0)
+            program[j][i] = (instruction_t){1, args.num_procs-1, 0};
+          else
+            program[j][i] = (instruction_t){1, j-1, 0};
+        }
       }
     }
     break;
@@ -146,6 +152,18 @@ void finish_test() {
     case 3:
       hr = caches[i]->hit_rate();
       printf("Processor %d hit rate: %.2f\n", i, hr);
+      break;
+    
+    case 4:
+      if(test_pass == 0){
+        printf("Functionality fail, somebody didn't load correct value\n");
+      }
+      else if(test_pass == 1){
+        printf("yay worekd; \n");
+      }
+      else if(test_pass == 2){
+        printf("hmm i think probably maybe deadlock? dunno testcase is probably wrong");
+      }
       break;
       
     default: 
@@ -320,16 +338,86 @@ void proc_t::advance_one_cycle() {
 
     break;
 
-    case 4:
-      // int cur_op = program[proc][pc[proc]].op;
-      // address_t cur_addr=program[proc][pc[proc]].addr;
-      // int cur_data=program[proc][pc[proc]].data;
-      
-      // if(cur_op){
-      //   response = cache->load(cur_addr, 0, &data, response.retry_p);
-      // }
-    break;
+    case 4:{
+      int cur_op = program[proc][pc[proc][0]].op;
+      address_t cur_addr=program[proc][pc[proc][0]].addr;
+      int cur_data=program[proc][pc[proc][0]].data;
+      if(cur_cycle == args.num_cycles-1){
+        for(int i=0; i<args.num_procs; i++){
+          if(pc[i][0]<4){
+            test_pass = 2;
+          }
+        }
+      }
 
+      if(pc[proc][0]==4){//executed last instruction, we should do nothing
+        break;
+      }
+      
+      if(pc[proc][1]==0){ // if this instruction should be executed
+        if(cur_op == 1){
+          response = cache->load(cur_addr, 0, &data, response.retry_p);
+          if(response.hit_p){ //if cache hit
+            pc[proc][1] = 1;
+            //check if loaded result is correct. program[node][1] loads from last addr of 1st interleaved block left neighbor's node number, program[node][3] loads from node 0 69420+left neighbor node number
+            if(pc[proc][0]==1){
+              if(proc==0){
+                if(data != args.num_procs - 1)
+                  test_pass = 0;
+              }
+              else{
+                if(data != proc-1)
+                  test_pass = 0;
+              }
+            }
+            else if(pc[proc][0]==3){
+              if(proc==0){
+                if(data != (69420+args.num_procs - 1))
+                  test_pass = 0;
+              }
+              else{
+                if(data != (proc-1+69420))
+                  test_pass = 0;
+              }
+            }
+            //check if everybody completed, then move on
+            int completion_count = 0;
+            for(int i=0; i<args.num_procs; i++){
+              completion_count += pc[i][1];
+            }
+            if(completion_count == args.num_procs){ //everybody finished
+              for(int i=0; i<args.num_procs; i++){
+                pc[i][1]=0; //clear everybody's completion flag
+                pc[i][0]++; //increment everybody's PC
+              }
+
+            }
+          }
+        }
+        else{
+          response = cache->store(cur_addr, 0, cur_data, response.retry_p);
+          if(response.hit_p){
+            pc[proc][1] = 1;
+            //check if everybody completed their instruction, then move on
+            int completion_count = 0;
+            for(int i=0; i<args.num_procs; i++){
+              completion_count += pc[i][1];
+            }
+            if(completion_count == args.num_procs){ //everybody finished
+              for(int i=0; i<args.num_procs; i++){
+                pc[i][1]=0; //clear everybody's completion flag
+                pc[i][0]++; //increment everybody's PC
+              }
+
+            }
+          }
+        }
+      }
+      else{ //instruction has been executed, see if PC should be incremented?
+        //do nothing for now
+      }
+    break;
+    }
   default:
     ERROR("don't know this test case");
   }
