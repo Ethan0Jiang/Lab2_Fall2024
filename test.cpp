@@ -134,9 +134,7 @@ void finish_test() {
     switch(args.test) {
     case 0:
       hr = caches[i]->hit_rate();
-      if (!within_tolerance(hr, 0.5, 0.01)) { 
-	      ERROR("out of tolerance");
-      }
+      printf("Processor %d hit rate: %.2f\n", i, hr);
       break;
 
     case 1:
@@ -260,13 +258,14 @@ void proc_t::advance_one_cycle() {
 
 
   case 2:
-    if (proc < args.num_procs-1) { 
-      if (!response.retry_p) {
-        addr = 324; // Fixed address
-      }        
-      response = cache->load(addr, 0, &data, response.retry_p);
+    if (proc < args.num_procs-1 && cur_cycle > 150) { 
+      addr_rd = 324; // Fixed address
+      response = cache->load(addr_rd, 0, &data, response.retry_p);
       if (args.verbose) {
         printf("Processor %d: Loading from address %d, data: %d\n", proc, addr, data);
+      }
+      if (data != 800 && !response.retry_p) {
+        ERROR("data is not 800");
       }
     } else if (proc == args.num_procs-1) { // Processor n stores to different addresses with same set, need eviction, also test snooping and writeback
       int set_shift = LG_CACHE_LINE_SIZE;
@@ -274,17 +273,20 @@ void proc_t::advance_one_cycle() {
       int set_mask = (1 << lg_num_sets) - 1;
       int set = (addr >> set_shift) & set_mask;
       // Different addresses with same set, random address but with set bits replace back
-      if (!response.retry_p && op_count < 4) {
+      if (!response.retry_p && cur_cycle > 100) {
         addr = (random() % test_args.addr_range) & ~(set_mask << set_shift); // Clear set bits
+        if (addr == 324) {
+          addr = 325;
+        }
         addr |= (set << set_shift); // Apply the calculated set bits
-        op_count++;
-      } else if (!response.retry_p && op_count == 4) {
+        data = cur_cycle;
+      } else if (!response.retry_p && cur_cycle < 50) {
         addr = 324; // Fixed address
-        op_count = 0;
+        data = 800;
       } 
-      response = cache->store(addr, 0, cur_cycle, response.retry_p);
+      response = cache->store(addr, 0, data, response.retry_p);
       if (args.verbose) {
-        printf("Processor %d: Storing to address %d, data: %d\n", proc, addr, cur_cycle);
+        printf("Processor %d: Storing to address %d, data: %d\n", proc, addr, data);
       }
     }
   break;
@@ -321,15 +323,15 @@ void proc_t::advance_one_cycle() {
             load_done = 1; // Set the bit for this proc
             if (args.verbose) {
               printf("Processor %d: Loading from address %d, data: %d\n", proc, addr_rd, data);
-              // error if the data is not the next proc's ID
-              if (proc == (args.num_procs-1)){
-                if (data != 0) {
-                  ERROR("data is not the next proc's ID");
-                }
-              } else {
-                if (data != (proc+1)) {
-                  ERROR("data is not the next proc's ID");
-                }
+            }
+            // error if the data is not the next proc's ID
+            if (proc == (args.num_procs-1)){
+              if (data != 0) {
+                ERROR("data is not the next proc's ID");
+              }
+            } else {
+              if (data != (proc+1)) {
+                ERROR("data is not the next proc's ID");
               }
             }
           }

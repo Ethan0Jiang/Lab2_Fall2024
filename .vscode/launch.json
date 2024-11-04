@@ -6,11 +6,11 @@
         "type": "cppdbg",
         "request": "launch",
         "program": "${workspaceFolder}/sim",  // Path to your compiled executable
-        "args": ["32", "10000", "0", "0"],    // test case 0, random read and write, if retry > 500 times means could be deadlock
-        // "args": ["8", "1000", "1", "1"],        // test case 1, all nodes in shared state, then one RWITM, then everyone reads again
-        // "args": ["4", "10000", "2", "1"],    // test case 2, evition/ writeback check
-        // "args": ["32", "10000", "2", "1"],   
-        // "args": ["4", "1000", "3", "1"],     
+        // "args": ["32", "10000", "0", "0"],    // test case 0, random read and write, if retry > 500 times means could be deadlock
+        // "args": ["8", "1000", "1", "0"],        // test case 1, all nodes in shared state, then one RWITM, then everyone reads again
+        // "args": ["4", "10000", "2", "0"],    // test case 2, evition/ writeback check
+        // "args": ["32", "10000", "3", "0"],   // read and write in a ring pattern
+        "args": ["4", "1000", "4", "0"],     
         "stopAtEntry": false,                 // Set to true if you want to stop at the program entry
         "cwd": "${workspaceFolder}",          // Set to the working directory of your program
         "environment": [],
