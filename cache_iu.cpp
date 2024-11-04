@@ -167,6 +167,10 @@ void cache_t::reply(proc_cmd_t proc_cmd) {
 
   cache_access_response_t car = lru_replacement(proc_cmd.addr);  // car is the cache access response
 
+  if (tags[car.set][car.way].permit_tag != INVALID) {
+    ERROR("The permit tag should be INVALID");
+  }
+
   if(proc_cmd.tag == 0){
     NOTE_ARGS(("%d: replacing addr_tag %d into set %d, assoc %d", node, car.address_tag, car.set, car.way));
     car.permit_tag = proc_cmd.permit_tag;
