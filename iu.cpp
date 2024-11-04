@@ -362,7 +362,12 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
             net_cmd_P3.proc_cmd = temp_P3;
             pri3_sent_p = net->to_net(node, PRI3, net_cmd_P3);
           }
-          return !pri3_sent_p;
+          if (pri3_sent_p){
+            pri3_sent_p = false; // reset the flag
+            return false;
+          } else {
+            return true;
+          }
         }
         else if (pc.permit_tag == MODIFIED){ //RWITM
           if (!pri3_sent_p){
@@ -374,7 +379,12 @@ bool iu_t::process_proc_request(proc_cmd_t pc) {
             net_cmd_P3.proc_cmd = temp_P3;
             pri3_sent_p = net->to_net(node, PRI3, net_cmd_P3);
           }
-          return !pri3_sent_p;
+          if (pri3_sent_p){
+            pri3_sent_p = false; // reset the flag
+            return false;
+          } else {
+            return true;
+          }
         }
       default: 
         ERROR("Processor should have issued only Read miss or RWITM");
@@ -697,10 +707,10 @@ bool iu_t::process_net_request(net_cmd_t net_cmd) {
 
 bool iu_t::process_net_reply(net_cmd_t net_cmd) {    // this is a reply from the network that set proc_cmd_p back to false
   proc_cmd_t pc = net_cmd.proc_cmd;
-  pri3_sent_p = false;
+  // pri3_sent_p = false;
   // pri2_sent_p = false;
   // invalid_send_init = false; // not nessary, but for safety
-  proc_cmd_p = false; // clear out request that this reply is a reply to
+  // proc_cmd_p = false; // clear out request that this reply is a reply to
   if (pc.tag == 0) {
     if (pc.busop == READ) {
       cache->reply(pc);
