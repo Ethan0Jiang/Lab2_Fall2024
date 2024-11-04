@@ -93,6 +93,7 @@ void init_test() {
     break;
 
   case 4: // PRI3 race condition test
+    test_pass = 1;
     for(int i = 0; i<args.num_procs; i++){
       pc[i][0] = 0;
       pc[i][1] = 0;
@@ -153,7 +154,15 @@ void finish_test() {
       break;
     
     case 4:
-      if(test_pass == 0){
+      
+      break;
+      
+    default: 
+      ERROR("don't recognize this test");
+    }
+  }
+  if(args.test == 4){
+    if(test_pass == 0){
         printf("Functionality fail, somebody didn't load correct value\n");
       }
       else if(test_pass == 1){
@@ -162,13 +171,8 @@ void finish_test() {
       else if(test_pass == 2){
         printf("hmm i think probably maybe deadlock? dunno testcase is probably wrong");
       }
-      break;
-      
-    default: 
-      ERROR("don't recognize this test");
-    }
   }
-  printf("passed\n");
+  printf("test finish\n");
 }
 
 void proc_t::advance_one_cycle() {
@@ -362,13 +366,14 @@ void proc_t::advance_one_cycle() {
           if(response.hit_p){ //if cache hit
             pc[proc][1] = 1;
             //check if loaded result is correct. program[node][1] loads from last addr of 1st interleaved block left neighbor's node number, program[node][3] loads from node 0 69420+left neighbor node number
+            printf("Processor %d executed load addr %d and received data value: %d\n", proc, cur_addr, data);
             if(pc[proc][0]==1){
-              if(proc==0){
-                if(data != args.num_procs - 1)
+              if(proc==args.num_procs - 1){
+                if(data != 0)
                   test_pass = 0;
               }
               else{
-                if(data != proc-1)
+                if(data != proc+1)
                   test_pass = 0;
               }
             }
