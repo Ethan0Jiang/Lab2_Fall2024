@@ -76,20 +76,6 @@ void init_test() {
   case 3: // multiple cores test
     // test_args.addr_range = 8192 * 4;
     test_args.addr_range = 256 * 4;
-    // for(int i = 0; i<2; i++){
-    //   for(int j = 0; j<args.num_procs; j++){
-    //     if(i == 0){
-    //       if(j==0){
-    //         program[j][i] = (instruction_t){0, (args.num_procs*256) - 1, j};
-    //       }
-    //       else{
-    //         program[j][i] = (instruction_t){0, (j*256)-1, j};
-    //       }
-    //     }
-    //     if(i==1)
-    //       program[j][i] = (instruction_t){1, ((j+1)*256) -1};
-    //   }
-    // }
     break;
 
   case 4: // PRI3 race condition test
@@ -209,10 +195,7 @@ void proc_t::advance_one_cycle() {
   break;
 
 
-  // A random one but with some print statements (similar to case 0, but with a larger address space)
   case 1:
-    // At the beginning, every node except node 0 performs a load to addr 324.
-    // They keep attempting until they succeed. Node 0 does nothing initially.
     if (proc > 0) {
       if (!initial_load_done) {
         addr = 324;
